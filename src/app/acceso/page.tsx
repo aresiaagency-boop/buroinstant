@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { BrandMark } from "@/components/BrandMark";
 import { HexagonalGravityField } from "@/components/HexagonalGravityField";
+import { GoogleSignInButton } from "@/components/GoogleSignInButton";
 import { LivingGoldenOrb } from "@/components/LivingGoldenOrb";
 import { googleOAuthConfigured } from "@/lib/auth";
 
@@ -24,9 +25,7 @@ export default function AccessPage() {
           expediente empresarial.
         </p>
         {googleOAuthConfigured ? (
-          <Link className="google-button" href="/api/auth/signin/google?callbackUrl=/app">
-            <span aria-hidden="true">G</span> Continuar con Google
-          </Link>
+          <GoogleSignInButton />
         ) : (
           <button className="google-button" type="button" disabled>
             <span aria-hidden="true">G</span> Google OAuth pendiente de configuración
