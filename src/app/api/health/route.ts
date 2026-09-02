@@ -1,14 +1,33 @@
 import { NextResponse } from "next/server";
-import { isDatabaseConfigured } from "@/lib/db";
+import { db, isDatabaseConfigured } from "@/lib/db";
 import { googleOAuthConfigured } from "@/lib/auth";
 
 export async function GET() {
+  let database: "not_configured" | "connected" | "unreachable" = "not_configured";
+  let appliedMigrations = 0;
+
+  if (isDatabaseConfigured()) {
+    try {
+      const sql = db();
+      await sql`select 1 as ok`;
+      const result = await sql`
+        select count(*)::int as count from schema_migrations
+      `;
+      database = "connected";
+      appliedMigrations = Number(result[0]?.count ?? 0);
+    } catch {
+      database = "unreachable";
+    }
+  }
+
+  const healthy = database !== "unreachable";
   return NextResponse.json({
-    status: "ok",
+    status: healthy ? "ok" : "degraded",
     service: "buroinstant-web",
     timestamp: new Date().toISOString(),
     configuration: {
-      database: isDatabaseConfigured() ? "configured" : "not_configured",
+      database,
+      appliedMigrations,
       googleOAuth: googleOAuthConfigured ? "configured" : "not_configured",
       n8nWebhook: process.env.N8N_WEBHOOK_SECRET ? "configured" : "not_configured",
       evolutionApi:
@@ -16,5 +35,5 @@ export async function GET() {
           ? "configured"
           : "not_configured",
     },
-  });
+  }, { status: healthy ? 200 : 503 });
 }
