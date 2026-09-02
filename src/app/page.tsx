@@ -62,7 +62,10 @@ export default function LandingPage() {
       <footer className="landing-footer">
         <span>BUROINSTANT / ARESIA</span>
         <span>Información orientativa · No sustituye asesoramiento profesional</span>
-        <span>ES · EN</span>
+        <span className="landing-footer__links">
+          <Link href="/privacidad">Privacidad</Link>
+          <Link href="/terminos">Condiciones</Link>
+        </span>
       </footer>
     </main>
   );
