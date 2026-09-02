@@ -1,0 +1,36 @@
+{
+  "name": "buroinstant",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Sistema operativo inteligente para crear y gestionar una empresa en España.",
+  "engines": {
+    "node": ">=22 <25"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check": "npm run lint && npm run typecheck && npm run test && npm run build"
+  },
+  "dependencies": {
+    "next": "16.3.4",
+    "next-auth": "4.24.15",
+    "postgres": "3.4.7",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "eslint": "^9.39.0",
+    "eslint-config-next": "16.3.4",
+    "typescript": "^5.9.3",
+    "vitest": "4.1.11"
+  }
+}

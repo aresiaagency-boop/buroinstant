@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BUROINSTANT WhatsApp normalized ingestion",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["provider", "event", "instance", "messageId", "phone", "type", "text", "timestamp"],
+  "properties": {
+    "provider": { "const": "EVOLUTION_API" },
+    "event": { "const": "messages.upsert" },
+    "instance": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "messageId": { "type": "string", "minLength": 1, "maxLength": 250 },
+    "phone": { "type": "string", "pattern": "^[0-9]{7,20}$" },
+    "pushName": { "type": "string", "maxLength": 160 },
+    "type": { "enum": ["text", "voice"] },
+    "text": { "type": "string", "minLength": 1, "maxLength": 12000 },
+    "timestamp": { "type": "string", "format": "date-time" }
+  }
+}
