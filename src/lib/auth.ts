@@ -1,8 +1,12 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
+import { notFound, redirect } from "next/navigation";
 import { getServerSession, type NextAuthOptions } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 import type { Actor } from "@/types/domain";
+import { isSuperAdmin, isSuperAdminEmail, superAdminEmails } from "@/lib/authorization";
+
+export { isSuperAdmin, isSuperAdminEmail, superAdminEmails };
 
 export const googleOAuthConfigured = Boolean(
   process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.env.AUTH_SECRET,
@@ -85,4 +89,15 @@ export async function getCurrentActor(): Promise<Actor | null> {
     };
   }
   return null;
+}
+
+/**
+ * Puerta del panel de administración. La comprobación vive en el servidor:
+ * ocultar un enlace no es control de acceso.
+ */
+export async function requireSuperAdmin(): Promise<Actor> {
+  const actor = await getCurrentActor();
+  if (!actor) redirect("/acceso?next=%2Fadmin");
+  if (!isSuperAdmin(actor)) notFound();
+  return actor;
 }
