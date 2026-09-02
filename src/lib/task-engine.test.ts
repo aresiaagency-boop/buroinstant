@@ -1,0 +1,142 @@
+import { describe, expect, it } from "vitest";
+import { deriveTasks, type ProjectProfile } from "@/lib/task-engine";
+import { buildCompleteness } from "@/lib/completeness";
+import { REGULATORY_FACTS, fact, isBindingFact } from "@/lib/regulatory-facts";
+
+const company: Partial<ProjectProfile> = { legalForm: "SL", founders: 2 };
+
+describe("motor de trámites", () => {
+  it("NUNCA indica presentar el modelo 037; sólo puede decir que está suprimido", () => {
+    const perfiles: Array<Partial<ProjectProfile>> = [
+      { legalForm: "AUTONOMO" },
+      { legalForm: "SLU" },
+      { legalForm: "SL", willHireWorkers: true, hasPremises: true, publicConcurrence: true },
+      { legalForm: "SL", revenueBand: "OVER_1M" },
+      {},
+    ];
+    for (const perfil of perfiles) {
+      const tasks = deriveTasks(perfil);
+      for (const task of tasks) {
+        expect(task.title).not.toMatch(/\b037\b/);
+      }
+      for (const fragment of JSON.stringify(tasks).split(". ")) {
+        if (/\b037\b/.test(fragment)) expect(fragment).toMatch(/suprimid/i);
+      }
+      expect(JSON.stringify(tasks)).toMatch(/\b036\b/);
+    }
+  });
+
+  it("el itinerario societario incluye notaría, registro y NIF; el de autónomo no", () => {
+    const societario = deriveTasks(company).map((task) => task.code);
+    const autonomo = deriveTasks({ legalForm: "AUTONOMO" }).map((task) => task.code);
+    for (const code of ["COMPANY_NAME", "BYLAWS", "CAPITAL", "NOTARY", "REGISTRY", "NIF_DEFINITIVO", "BENEFICIAL_OWNERS"]) {
+      expect(societario).toContain(code);
+      expect(autonomo).not.toContain(code);
+    }
+  });
+
+  it("por debajo de 1.000.000 € usa la vía de exención con 036, no el 840", () => {
+    const tasks = deriveTasks({ ...company, revenueBand: "K60_250" });
+    expect(tasks.some((task) => task.code === "IAE_EXENCION")).toBe(true);
+    expect(tasks.some((task) => task.code === "IAE_840_848")).toBe(false);
+  });
+
+  it("por encima de 1.000.000 € aparecen los modelos 840 y 848", () => {
+    const iae = deriveTasks({ ...company, revenueBand: "OVER_1M" }).find((task) => task.code === "IAE_840_848");
+    expect(iae).toBeDefined();
+    expect(iae?.detail).toMatch(/840/);
+    expect(iae?.detail).toMatch(/848/);
+  });
+
+  it("la inscripción en Seguridad Social no nace lista: su fundamento no está verificado", () => {
+    const task = deriveTasks({ ...company, willHireWorkers: true }).find((t) => t.code === "SS_INSCRIPCION");
+    expect(task?.status).toBe("NOT_STARTED");
+    expect(task?.pendingVerification?.length ?? 0).toBeGreaterThan(10);
+  });
+
+  it("sin local no genera licencia ni pública concurrencia", () => {
+    const codes = deriveTasks(company).map((task) => task.code);
+    expect(codes).not.toContain("LOCAL_LICENCIA");
+    expect(codes).not.toContain("PUBLICA_CONCURRENCIA");
+  });
+
+  it("las operaciones intracomunitarias añaden ROI/VIES y las de fuera, EORI", () => {
+    const codes = deriveTasks({ ...company, euOperations: true, nonEuOperations: true }).map((t) => t.code);
+    expect(codes).toContain("ROI_VIES");
+    expect(codes).toContain("EORI");
+    expect(deriveTasks(company).map((t) => t.code)).not.toContain("ROI_VIES");
+  });
+
+  it("cada trámite explica cómo se acredita", () => {
+    for (const task of deriveTasks({ ...company, hasPremises: true, willHireWorkers: true })) {
+      expect(task.verificationMethod.length).toBeGreaterThan(5);
+    }
+  });
+
+  it("las dependencias apuntan a trámites que existen", () => {
+    const tasks = deriveTasks({ ...company, hasPremises: true, publicConcurrence: true, willHireWorkers: true });
+    const codes = new Set(tasks.map((task) => task.code));
+    for (const task of tasks) {
+      for (const dependency of task.dependencyCodes) expect(codes).toContain(dependency);
+    }
+  });
+});
+
+describe("¿qué me falta?", () => {
+  it("separa bloqueadores y no cuenta como hecho lo que no lo está", () => {
+    const report = buildCompleteness(deriveTasks(company), [
+      { field: "preferred_legal_form", label: "Forma jurídica", blocking: true },
+    ]);
+    expect(report.buckets.BLOQUEADOR.length).toBeGreaterThan(0);
+    expect(report.percentComplete).toBe(0);
+    expect(report.nextQuestion).toBeTruthy();
+  });
+
+  it("un trámite completado sube el progreso y desbloquea a los que dependían de él", () => {
+    const tasks = deriveTasks(company).map((task) =>
+      task.code === "IDENTITY" ? { ...task, status: "COMPLETED" as const } : task,
+    );
+    const report = buildCompleteness(tasks);
+    expect(report.buckets.COMPLETADO).toHaveLength(1);
+    expect(report.percentComplete).toBeGreaterThan(0);
+  });
+
+  it("devuelve una sola pregunta, no una batería", () => {
+    const report = buildCompleteness(deriveTasks(company));
+    expect(report.nextQuestion?.split("?").length).toBeLessThanOrEqual(2);
+  });
+});
+
+describe("datos regulatorios", () => {
+  it("todo hecho cita al menos una fuente oficial", () => {
+    for (const item of REGULATORY_FACTS) {
+      expect(item.sources.length).toBeGreaterThan(0);
+      for (const source of item.sources) expect(source.url).toMatch(/^https:\/\//);
+    }
+  });
+
+  it("sólo son vinculantes los hechos verificados de fuente oficial o de la ley", () => {
+    for (const item of REGULATORY_FACTS) {
+      if (isBindingFact(item)) {
+        expect(["OFFICIAL_SOURCE", "LAW"]).toContain(item.authority);
+        expect(item.requiresLiveVerification).toBe(false);
+      } else {
+        expect(item.verificationNote?.length ?? 0).toBeGreaterThan(10);
+      }
+    }
+  });
+
+  it("el hecho del 037 está fechado y prohíbe su uso", () => {
+    const item = fact("MODELO_037_SUPRIMIDO");
+    expect(item?.effectiveDate).toBe("2025-02-03");
+    expect(isBindingFact(item)).toBe(true);
+    expect(item?.productRule).toMatch(/Ninguna tarea/);
+  });
+
+  it("el capital de 1 € nunca se presenta como recomendación por defecto", () => {
+    const item = fact("SL_CAPITAL_MINIMO");
+    expect(item?.productRule).toMatch(/Nunca presentar 1 €/);
+    expect(item?.statement).toMatch(/reserva legal/);
+    expect(item?.statement).toMatch(/solidariamente/);
+  });
+});
