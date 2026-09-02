@@ -421,7 +421,7 @@ a {
   display: flex;
   min-height: 100svh;
   flex-direction: column;
-  overflow: hidden;
+  overflow-x: hidden;
   background:
     linear-gradient(90deg, rgba(3, 5, 7, 0.97) 0%, rgba(5, 8, 12, 0.62) 47%, rgba(3, 5, 7, 0.94) 100%),
     radial-gradient(circle at 59% 45%, rgba(108, 75, 25, 0.12), transparent 28rem);
@@ -450,7 +450,8 @@ a {
   z-index: 2;
   display: grid;
   width: min(1500px, 100%);
-  flex: 1;
+  flex: 1 0 auto;
+  min-height: calc(100svh - 8rem);
   grid-template-columns: minmax(390px, 1.06fr) minmax(370px, 0.9fr) minmax(230px, 0.48fr);
   align-items: center;
   margin: 0 auto;
@@ -1774,4 +1775,292 @@ a {
 
 @media (prefers-reduced-motion: reduce) {
   .chrome-link, .chrome-exit, .row-actions button { transition: none; }
+}
+
+/* ── Portada: sección "Cómo funciona" ───────────────────────────────── */
+
+.landing-system {
+  position: relative;
+  z-index: 2;
+  width: min(1500px, 100%);
+  margin: 0 auto;
+  padding: clamp(3rem, 7vw, 6rem) clamp(1.25rem, 4.5vw, 5.5rem) clamp(2.5rem, 5vw, 4rem);
+  border-top: 1px solid var(--line);
+  scroll-margin-top: 5rem;
+}
+
+.landing-system__head {
+  max-width: 46rem;
+}
+
+.landing-system__head h2 {
+  margin: 0.6rem 0 0.9rem;
+  font-family: var(--font-display);
+  font-size: clamp(1.6rem, 3.2vw, 2.5rem);
+  font-weight: 400;
+  line-height: 1.15;
+}
+
+.landing-system__head p {
+  margin: 0;
+  max-width: 38rem;
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.7;
+}
+
+.landing-steps {
+  display: grid;
+  margin: clamp(2rem, 4vw, 3rem) 0 0;
+  padding: 0;
+  gap: 1px;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  background: var(--line);
+  border: 1px solid var(--line);
+  list-style: none;
+}
+
+.landing-steps li {
+  padding: 1.6rem 1.4rem 1.8rem;
+  background: var(--obsidian);
+}
+
+.landing-steps__number {
+  display: block;
+  margin-bottom: 0.9rem;
+  color: var(--gold-antique);
+  font-family: var(--font-mono);
+  font-size: 0.56rem;
+  letter-spacing: 0.18em;
+}
+
+.landing-steps strong {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-family: var(--font-display);
+  font-size: 1.02rem;
+  font-weight: 500;
+}
+
+.landing-steps p {
+  margin: 0;
+  color: #797a79;
+  font-size: 0.72rem;
+  line-height: 1.6;
+}
+
+.landing-system__cta {
+  display: flex;
+  align-items: center;
+  margin-top: clamp(1.8rem, 3.5vw, 2.6rem);
+  gap: 1.4rem;
+  flex-wrap: wrap;
+}
+
+.landing-system__cta p {
+  max-width: 26rem;
+  margin: 0;
+  color: #797a79;
+  font-size: 0.7rem;
+  line-height: 1.6;
+}
+
+/* ── Orbe pulsable ──────────────────────────────────────────────────── */
+
+.orb-annotation--action {
+  padding: 0.45rem 0.9rem;
+  border: 1px solid rgba(219, 184, 109, 0.22);
+  border-radius: 999px;
+  background: rgba(6, 9, 13, 0.6);
+  color: rgba(219, 184, 109, 0.78);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.52rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  transition: border-color 160ms ease, color 160ms ease, background 160ms ease;
+}
+
+.orb-annotation--action:hover,
+.orb-annotation--action:focus-visible {
+  border-color: rgba(219, 184, 109, 0.55);
+  background: rgba(219, 184, 109, 0.08);
+  color: var(--gold-white);
+}
+
+/* ── Conversación por mensaje de voz ────────────────────────────────── */
+
+.voice-overlay {
+  position: fixed;
+  z-index: 60;
+  display: grid;
+  padding: clamp(1rem, 4vw, 3rem);
+  inset: 0;
+  place-items: center;
+}
+
+.voice-overlay__scrim {
+  position: absolute;
+  border: 0;
+  background: rgba(2, 4, 6, 0.82);
+  backdrop-filter: blur(6px);
+  cursor: pointer;
+  inset: 0;
+}
+
+.voice-panel {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  width: min(560px, 100%);
+  max-height: min(88svh, 900px);
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 1.6rem clamp(1.1rem, 3vw, 2rem) 1.8rem;
+  border: 1px solid rgba(219, 184, 109, 0.2);
+  background: linear-gradient(165deg, rgba(9, 12, 17, 0.98), rgba(4, 6, 9, 0.99));
+  box-shadow: 0 40px 120px rgba(0, 0, 0, 0.6);
+  gap: 1rem;
+}
+
+.voice-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.voice-close {
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.56rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.voice-close:hover,
+.voice-close:focus-visible {
+  border-color: rgba(219, 184, 109, 0.5);
+  color: var(--gold-white);
+}
+
+.voice-panel__orb {
+  display: grid;
+  min-height: 200px;
+  place-items: center;
+}
+
+.voice-panel__notice {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.voice-panel__controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.gold-button.is-recording {
+  animation: voice-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes voice-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(219, 184, 109, 0.35); }
+  50% { box-shadow: 0 0 0 10px rgba(219, 184, 109, 0); }
+}
+
+.voice-log {
+  display: grid;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--line);
+  gap: 0.7rem;
+}
+
+.voice-fields {
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--line);
+}
+
+.voice-fields__title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 0.7rem;
+  color: var(--gold-antique);
+  font-family: var(--font-mono);
+  font-size: 0.54rem;
+  gap: 1rem;
+  letter-spacing: 0.16em;
+}
+
+.voice-fields__title small {
+  color: #797a79;
+  letter-spacing: 0.08em;
+}
+
+.voice-fields dl {
+  display: grid;
+  margin: 0 0 1rem;
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+}
+
+.voice-fields dl > div {
+  display: grid;
+  align-items: center;
+  padding: 0.65rem 0.8rem;
+  background: var(--obsidian);
+  gap: 0.3rem 1rem;
+  grid-template-columns: 1fr auto;
+}
+
+.voice-fields dt {
+  color: #797a79;
+  font-family: var(--font-mono);
+  font-size: 0.56rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.voice-fields dd {
+  margin: 0;
+  font-size: 0.82rem;
+  grid-column: 1;
+}
+
+.voice-fields dl > div span {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+}
+
+.voice-panel__legal {
+  margin: 0;
+  color: #5f605f;
+  font-size: 0.62rem;
+  line-height: 1.55;
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gold-button.is-recording {
+    animation: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .landing-system__cta {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }

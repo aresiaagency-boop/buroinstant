@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createPreviewToken } from "@/lib/auth";
+import { safeInternalPath } from "@/lib/navigation";
 
 export async function POST(request: Request) {
   if (process.env.NODE_ENV === "production") {
@@ -8,7 +9,17 @@ export async function POST(request: Request) {
       { status: 403 },
     );
   }
-  const response = NextResponse.redirect(new URL("/app", request.url), 303);
+
+  // El destino llega del formulario: se valida antes de redirigir.
+  let destination = "/app";
+  try {
+    const form = await request.formData();
+    destination = safeInternalPath(form.get("next")?.toString());
+  } catch {
+    destination = "/app";
+  }
+
+  const response = NextResponse.redirect(new URL(destination, request.url), 303);
   response.cookies.set("buroinstant.preview", createPreviewToken(), {
     httpOnly: true,
     sameSite: "lax",

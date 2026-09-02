@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { BrandMark } from "@/components/BrandMark";
 import { HexagonalGravityField } from "@/components/HexagonalGravityField";
 import { LivingGoldenOrb } from "@/components/LivingGoldenOrb";
+import { VoiceConversation } from "@/components/VoiceConversation";
 import { emitOrb } from "@/lib/orb-events";
 import type { Actor, ExtractedField, OrbState } from "@/types/domain";
 
@@ -55,11 +56,14 @@ function displayValue(value: unknown) {
 export function DashboardExperience({
   actor,
   configuration,
+  openVoiceOnMount = false,
 }: {
   actor: Actor;
   configuration: { database: boolean; googleOAuth: boolean };
+  openVoiceOnMount?: boolean;
 }) {
   const [orbState, setOrbState] = useState<OrbState>("idle");
+  const [voiceOpen, setVoiceOpen] = useState(openVoiceOnMount);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [profile, setProfile] = useState<Profile>({});
@@ -172,6 +176,20 @@ export function DashboardExperience({
     inputRef.current?.focus();
   }
 
+  /**
+   * El Orbe abre el canal de mensaje de voz: el audio se transcribe en el
+   * servidor y entra en la misma tubería que las notas de voz de WhatsApp.
+   * En demostración local ese canal no existe, así que queda el dictado del
+   * navegador, que nunca sale del dispositivo.
+   */
+  function activateOrb() {
+    if (actor.mode === "oauth") {
+      setVoiceOpen(true);
+      return;
+    }
+    startListening();
+  }
+
   function startListening() {
     if (recognitionRef.current) {
       recognitionRef.current.stop();
@@ -271,10 +289,15 @@ export function DashboardExperience({
               <span className="secure-label">● SESIÓN SEGURA</span>
             </div>
             <div className="orb-command-center">
-              <LivingGoldenOrb state={orbState} onActivate={startListening} />
+              <LivingGoldenOrb state={orbState} onActivate={activateOrb} />
               <div className="orb-copy">
                 <p>Expresa una intención.</p>
                 <strong>Yo la convierto en un siguiente paso verificable.</strong>
+                <button className="text-button" type="button" onClick={activateOrb}>
+                  {actor.mode === "oauth"
+                    ? "Pulsa el Orbe para enviar un mensaje de voz"
+                    : "Pulsa el Orbe para dictar (demostración local)"}
+                </button>
               </div>
             </div>
 
@@ -330,6 +353,7 @@ export function DashboardExperience({
               </button>
             </form>
             <p className="console-notice">{notice}</p>
+            {voiceOpen && <VoiceConversation onClose={() => setVoiceOpen(false)} />}
           </section>
 
           <aside className="case-rail" id="expediente">

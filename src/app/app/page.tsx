@@ -7,9 +7,17 @@ import { touchLastSeen } from "@/lib/admin-repository";
 
 export const metadata = { title: "Expediente" };
 
-export default async function AppPage() {
+export default async function AppPage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const actor = await getCurrentActor();
-  if (!actor) redirect("/acceso");
+  if (!actor) redirect("/acceso?next=%2Fapp");
+
+  // ?voz=1 llega desde el Orbe de la portada tras el acceso con Google.
+  const params = (await searchParams) ?? {};
+  const openVoice = params.voz === "1" && actor.mode === "oauth";
 
   // Marca de actividad para el panel de administración. Nunca bloquea la página.
   if (isDatabaseConfigured() && actor.mode === "oauth") {
@@ -25,6 +33,7 @@ export default async function AppPage() {
       <DashboardExperience
         actor={actor}
         configuration={{ database: isDatabaseConfigured(), googleOAuth: googleOAuthConfigured }}
+        openVoiceOnMount={openVoice}
       />
     </AppChrome>
   );
