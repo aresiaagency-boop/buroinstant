@@ -34,6 +34,16 @@ X-Orbe-Timestamp: <same ISO-8601 time used for signing>
 X-Orbe-Signature: HMAC_SHA256(secret, timestamp + "." + exactRawBody)
 ```
 
+Como alternativa operativa para un credential de n8n, el backend acepta el mismo
+secreto exclusivamente por HTTPS:
+
+```text
+Authorization: Bearer <N8N_WEBHOOK_SECRET>
+```
+
+La credencial debe guardarse en el credential store de n8n. Nunca debe formar
+parte del cuerpo, de una expresión visible ni del JSON exportado del workflow.
+
 Destino:
 
 ```text

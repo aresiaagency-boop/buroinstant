@@ -27,3 +27,13 @@ export function verifyWebhookSignature(input: {
   const received = Buffer.from(input.signature.replace(/^sha256=/, ""), "utf8");
   return expected.length === received.length && timingSafeEqual(expected, received);
 }
+
+export function verifyMachineBearer(secret: string, authorization: string | null) {
+  if (!authorization?.startsWith("Bearer ")) return false;
+  const supplied = authorization.slice("Bearer ".length).trim();
+  if (!supplied) return false;
+
+  const expected = Buffer.from(secret, "utf8");
+  const received = Buffer.from(supplied, "utf8");
+  return expected.length === received.length && timingSafeEqual(expected, received);
+}

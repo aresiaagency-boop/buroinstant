@@ -4,7 +4,7 @@ import { db, isDatabaseConfigured, toDatabaseJson } from "@/lib/db";
 import { BusinessDataIngestionService } from "@/lib/ingestion";
 import { resolveWhatsAppIdentity } from "@/lib/repository";
 import { inboundMessageSchema, whatsappWebhookSchema } from "@/lib/schemas";
-import { verifyWebhookSignature } from "@/lib/security/hmac";
+import { verifyMachineBearer, verifyWebhookSignature } from "@/lib/security/hmac";
 import { checkEphemeralRateLimit } from "@/lib/security/rate-limit";
 import { normalizeWhatsAppPhone } from "@/lib/whatsapp";
 
@@ -20,7 +20,9 @@ export async function POST(request: Request) {
   const rawBody = await request.text();
   const timestamp = request.headers.get("x-orbe-timestamp");
   const signature = request.headers.get("x-orbe-signature");
-  if (!verifyWebhookSignature({ secret, timestamp, signature, rawBody })) {
+  const hasValidHmac = verifyWebhookSignature({ secret, timestamp, signature, rawBody });
+  const hasValidBearer = verifyMachineBearer(secret, request.headers.get("authorization"));
+  if (!hasValidHmac && !hasValidBearer) {
     return NextResponse.json({ error: "INVALID_SIGNATURE" }, { status: 401 });
   }
 

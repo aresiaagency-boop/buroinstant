@@ -48,7 +48,7 @@ npm run check
 | `GOOGLE_CLIENT_ID` | OAuth Google | Sí | servidor |
 | `GOOGLE_CLIENT_SECRET` | OAuth Google | Sí | servidor |
 | `DATABASE_URL` | PostgreSQL fuente de verdad | Sí | servidor |
-| `N8N_WEBHOOK_SECRET` | Firma HMAC n8n → app | Sí para WhatsApp | servidor |
+| `N8N_WEBHOOK_SECRET` | Firma HMAC o Bearer de máquina n8n → app | Sí para WhatsApp | servidor |
 | `EVOLUTION_API_INSTANCE` | Instancia permitida | Sí para WhatsApp | servidor |
 | `EVOLUTION_API_KEY` | Envío por Evolution | Sí para WhatsApp | servidor |
 

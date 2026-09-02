@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { signWebhookPayload, verifyWebhookSignature } from "@/lib/security/hmac";
+import {
+  signWebhookPayload,
+  verifyMachineBearer,
+  verifyWebhookSignature,
+} from "@/lib/security/hmac";
 
 describe("n8n webhook HMAC", () => {
   it("accepts a valid recent signature", () => {
@@ -46,5 +50,17 @@ describe("n8n webhook HMAC", () => {
         now,
       }),
     ).toBe(false);
+  });
+});
+
+describe("n8n machine bearer", () => {
+  it("accepts the configured secret", () => {
+    expect(verifyMachineBearer("shared-secret", "Bearer shared-secret")).toBe(true);
+  });
+
+  it("rejects missing, malformed, and different credentials", () => {
+    expect(verifyMachineBearer("shared-secret", null)).toBe(false);
+    expect(verifyMachineBearer("shared-secret", "Basic shared-secret")).toBe(false);
+    expect(verifyMachineBearer("shared-secret", "Bearer other-secret")).toBe(false);
   });
 });
