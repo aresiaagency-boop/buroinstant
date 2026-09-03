@@ -207,3 +207,37 @@ vueltas en el bucle de espera indefinidamente, y hubo que pararlas a mano. Los
 mensajes reales de WhatsApp terminan en unos 2 segundos. Mientras ese
 antirrebote dependa de una suma de horas fija, el flujo no es comprobable sin un
 teléfono real: conviene arreglarlo antes que nada.
+
+
+## Hallazgo 10 — el esquema del nodo de herramienta (CORREGIDO)
+
+Segundo fallo del mismo nodo: con `specifyBody: json` y un `{question}` como
+marcador, n8n construye un esquema y valida la llamada del modelo contra él.
+Cualquier llamada sin ese campo —incluida la que hace el botón «Ejecutar paso»,
+que no manda nada— se rechaza con «La entrada de la herramienta recibida no
+coincide con el esquema esperado: Requerido → question».
+
+Corregido con `specifyBody: model`: el modelo escribe el cuerpo entero y la
+forma esperada va explicada en la descripción de la herramienta. La validación
+la hace la ruta, que responde 400 si falta la pregunta, y `onError:
+continueRegularOutput` impide que eso interrumpa la conversación.
+
+Nota: «Ejecutar paso» sobre un sub-nodo de herramienta siempre fallará, porque
+no hay agente que le pase una entrada. No es un fallo del nodo.
+
+## Hallazgo 11 — por qué el antirrebote impide probar sin teléfono
+
+`Switch2` continúa cuando `timestampt + 3 horas` es ANTERIOR a `$now`. Con un
+mensaje real eso se cumple al instante, porque la marca de tiempo de Evolution
+llega tres horas desfasada respecto del reloj del servidor. Con una marca
+sintética en hora real, `+3h` cae en el futuro y la ejecución entra en el bucle
+`Wait1` y no sale.
+
+Consecuencia práctica: el flujo solo se puede probar de punta a punta con un
+mensaje real de WhatsApp. Y en cuanto cambie el horario de verano, ese desfase
+de tres horas dejará de cuadrar y los mensajes reales empezarán a quedarse en el
+bucle.
+
+Arreglo recomendado: comparar en milisegundos y sin sumar horas fijas —
+`{{ new Date(JSON.parse($json.messages.last()).timestampt).getTime() }}` menor o
+igual que `{{ Date.now() - 5000 }}`, con operador numérico.
