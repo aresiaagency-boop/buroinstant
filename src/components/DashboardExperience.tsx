@@ -48,34 +48,82 @@ const phaseLabels = [
   "Operativa",
 ];
 
-/** Los cinco datos que abren el diagnóstico, con la frase que desbloquea cada uno. */
-const caseFields = [
+/**
+ * Los cinco datos que abren el diagnóstico.
+ *
+ * Cada uno lleva la pregunta tal y como se la haría una persona a otra, por qué
+ * importa, y —cuando la respuesta es una decisión cerrada— las opciones reales.
+ * Preguntar con opciones evita el problema que tenía antes esta pantalla: media
+ * frase suelta en el campo de conversación acababa guardada en el campo
+ * equivocado.
+ */
+type CaseFieldOption = { value: string | number | boolean; label: string };
+
+type CaseField = {
+  key: string;
+  label: string;
+  question: string;
+  why: string;
+  type: "text" | "choice";
+  placeholder?: string;
+  options?: CaseFieldOption[];
+};
+
+const caseFields: CaseField[] = [
   {
     key: "business_description",
     label: "Actividad",
-    prompt: "Mi actividad va a ser ",
+    question: "¿Qué va a vender tu empresa, a quién y desde dónde?",
+    why: "Con esto reconozco el sector y sé qué hay que comprobar en sede oficial.",
+    type: "text",
+    placeholder: "Ej.: desarrollo de software a medida para empresas, desde Palma",
   },
   {
     key: "preferred_legal_form",
     label: "Forma jurídica",
-    prompt: "Estoy pensando en constituir una ",
+    question: "¿Cómo quieres constituirla?",
+    why: "Decide si hay que pasar por notaría y Registro Mercantil, y cómo cotizas.",
+    type: "choice",
+    options: [
+      { value: "SL", label: "Sociedad Limitada (SL)" },
+      { value: "SLU", label: "SL unipersonal (SLU)" },
+      { value: "AUTONOMO", label: "Autónomo, sin sociedad" },
+      { value: "SIN_DECIDIR", label: "Todavía no lo sé" },
+    ],
   },
   {
     key: "number_of_founders",
     label: "Fundadores",
-    prompt: "Vamos a ser  socios",
+    question: "¿Cuántas personas vais a fundarla?",
+    why: "Con un solo socio la sociedad es unipersonal y hay que declararlo.",
+    type: "choice",
+    options: [
+      { value: 1, label: "Solo yo" },
+      { value: 2, label: "Dos" },
+      { value: 3, label: "Tres" },
+      { value: 4, label: "Más de tres" },
+    ],
   },
   {
     key: "municipality",
     label: "Municipio",
-    prompt: "La empresa estará en ",
+    question: "¿En qué municipio va a estar la empresa?",
+    why: "El ayuntamiento resuelve las licencias, y las tasas cambian de uno a otro.",
+    type: "text",
+    placeholder: "Ej.: Palma de Mallorca",
   },
   {
     key: "physical_premises",
     label: "Local físico",
-    prompt: "Sobre el local: ",
+    question: "¿Vas a tener un local abierto al público o a terceros?",
+    why: "Con local entran la licencia de apertura y, según la actividad, sanidad.",
+    type: "choice",
+    options: [
+      { value: true, label: "Sí, tendré local" },
+      { value: false, label: "No, trabajaré sin local" },
+    ],
   },
-] as const;
+];
 
 function displayValue(value: unknown) {
   if (typeof value === "boolean") return value ? "Sí" : "No";
@@ -104,6 +152,9 @@ export function DashboardExperience({
       text: "Cuéntame qué empresa quieres crear. Puedes hablar con naturalidad; yo convertiré la conversación en datos estructurados.",
     },
   ]);
+  const [section, setSection] = useState("orbe");
+  const [answering, setAnswering] = useState<CaseField | null>(null);
+  const [answerDraft, setAnswerDraft] = useState("");
   const [activity, setActivity] = useState<ActivityClassification | null>(null);
   const [classifying, setClassifying] = useState(false);
   const [sourceState, setSourceState] = useState<{
@@ -116,6 +167,7 @@ export function DashboardExperience({
       : "Modo local: configura PostgreSQL para persistencia compartida",
   );
   const inputRef = useRef<HTMLInputElement>(null);
+  const answerRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
 
   useEffect(() => {
@@ -189,20 +241,61 @@ export function DashboardExperience({
     }
   }
 
+  /** Lleva la vista a una sección. Los enlaces con # no bastan aquí. */
+  function goTo(id: string) {
+    setSection(id);
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   /**
-   * Cada dato pendiente del expediente es un control: al pulsarlo, la pregunta
-   * que lo desbloquea entra en el campo de conversación y el foco va allí.
-   * Nada de tarjetas decorativas que no llevan a ninguna parte.
+   * Abre la respuesta de un dato concreto.
+   *
+   * Antes esto metía media frase en el campo de conversación y el extractor
+   * adivinaba a qué campo pertenecía: "La empresa estará en Palma" acababa
+   * guardado como actividad. Ahora la persona responde a una pregunta concreta
+   * y el valor va al campo que se le ha preguntado, sin adivinar nada.
    */
-  function askFor(question: string) {
-    setInput(question);
-    setNotice("Completa la frase con tus datos y pulsa Manifestar.");
-    transition("listening", "Esperando tu respuesta");
+  function startAnswer(field: CaseField) {
+    setAnswering(field);
+    setAnswerDraft(field.type === "text" ? String(profile[field.key] ?? "") : "");
+    setSection("orbe");
+    transition("listening", `Esperando: ${field.label.toLowerCase()}`);
+    setNotice(field.why);
     window.setTimeout(() => {
-      inputRef.current?.focus();
-      const end = inputRef.current?.value.length ?? 0;
-      inputRef.current?.setSelectionRange(end, end);
-    }, 0);
+      document.getElementById("respuesta-dirigida")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      answerRef.current?.focus();
+    }, 60);
+  }
+
+  function saveAnswer(field: CaseField, value: unknown) {
+    const nextProfile = { ...profile, [field.key]: value };
+    setProfile(nextProfile);
+    if (actor.mode === "local_preview") {
+      window.localStorage.setItem("buroinstant.preview.profile", JSON.stringify(nextProfile));
+    }
+    setAnswering(null);
+    setAnswerDraft("");
+    setMessages((current) => [
+      ...current,
+      { role: "user", text: `${field.label}: ${displayValue(value)}` },
+      {
+        role: "assistant",
+        text: `Anotado en tu expediente. ${
+          caseFields.find((item) => {
+            const stored = nextProfile[item.key];
+            return stored === undefined || stored === null || stored === "";
+          })
+            ? "Sigo con el siguiente dato que hace falta."
+            : "Ya tengo los cinco datos: puedo clasificar la actividad y preparar la ruta."
+        }`,
+      },
+    ]);
+    transition("manifesting", `${field.label} incorporado`);
+    setNotice(`${field.label} guardado en el expediente.`);
+    window.setTimeout(() => {
+      transition("success", "Dato incorporado");
+      window.setTimeout(() => setOrbState("idle"), 1_200);
+    }, 500);
   }
 
   /**
@@ -365,13 +458,13 @@ export function DashboardExperience({
             ? "Empieza explicando qué vas a ofrecer, a quién y desde dónde operarás."
             : "Es el siguiente dato que desbloquea el diagnóstico de tu expediente.",
         cta: firstPending.key === "business_description" ? "Empezar ahora" : "Responder ahora",
-        prompt: firstPending.prompt,
+        field: firstPending,
       }
     : {
         title: "Listo para el diagnóstico",
         body: "Ya tengo los datos mínimos. Pídeme el diagnóstico y contrasto la ruta con la fuente oficial.",
-        cta: "Pedir diagnóstico",
-        prompt: "Ya tienes mis datos. Prepárame el diagnóstico de mi empresa.",
+        cta: "Clasificar mi actividad",
+        field: null as CaseField | null,
       };
   const sourceLabel =
     sourceState.status === "VERIFIED"
@@ -388,12 +481,25 @@ export function DashboardExperience({
       <aside className="dashboard-nav" aria-label="Navegación principal">
         <BrandMark compact />
         <nav>
-          <a className="nav-item is-active" href="#orbe" aria-label="Orbe"><span>⌾</span><small>Orbe</small></a>
-          <a className="nav-item" href="#expediente" aria-label="Proyecto"><span>◇</span><small>Proyecto</small></a>
-          <a className="nav-item" href="#tareas" aria-label="Trámites"><span>✓</span><small>Trámites</small></a>
-          <a className="nav-item" href="#actividad" aria-label="Actividad"><span>◈</span><small>Actividad</small></a>
-          <a className="nav-item" href="#fuentes" aria-label="AEAT"><span>§</span><small>AEAT</small></a>
-          <a className="nav-item" href="#trazabilidad" aria-label="Trazabilidad"><span>▱</span><small>Traza</small></a>
+          {[
+            { id: "orbe", icono: "⌾", texto: "Orbe" },
+            { id: "expediente", icono: "◇", texto: "Expediente" },
+            { id: "tareas", icono: "✓", texto: "Paso" },
+            { id: "actividad", icono: "◈", texto: "Actividad" },
+            { id: "fuentes", icono: "§", texto: "AEAT" },
+            { id: "trazabilidad", icono: "▱", texto: "Traza" },
+          ].map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={`nav-item nav-item--button ${section === item.id ? "is-active" : ""}`}
+              onClick={() => goTo(item.id)}
+              aria-label={item.texto}
+              aria-current={section === item.id ? "true" : undefined}
+            >
+              <span>{item.icono}</span><small>{item.texto}</small>
+            </button>
+          ))}
         </nav>
         <form action="/api/auth/logout" method="post">
           <button className="nav-item nav-item--button" type="submit" aria-label="Cerrar sesión">
@@ -480,6 +586,55 @@ export function DashboardExperience({
               </section>
             )}
 
+            {answering && (
+              <section className="answer-card" id="respuesta-dirigida" aria-label={`Responder: ${answering.label}`}>
+                <div className="answer-card__head">
+                  <span>{answering.label.toUpperCase()}</span>
+                  <button type="button" className="text-button text-button--tiny" onClick={() => setAnswering(null)}>
+                    Cancelar
+                  </button>
+                </div>
+                <h3>{answering.question}</h3>
+                <p className="answer-card__why">{answering.why}</p>
+
+                {answering.type === "choice" ? (
+                  <div className="answer-card__options">
+                    {(answering.options ?? []).map((option) => (
+                      <button
+                        key={String(option.value)}
+                        type="button"
+                        className="answer-option"
+                        onClick={() => saveAnswer(answering, option.value)}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <form
+                    className="answer-card__form"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      const value = answerDraft.trim();
+                      if (value.length < 2) return;
+                      saveAnswer(answering, value);
+                    }}
+                  >
+                    <input
+                      ref={answerRef}
+                      value={answerDraft}
+                      onChange={(event) => setAnswerDraft(event.target.value)}
+                      placeholder={answering.placeholder}
+                      aria-label={answering.question}
+                    />
+                    <button className="send-button" type="submit" disabled={answerDraft.trim().length < 2}>
+                      Guardar <span aria-hidden="true">↗</span>
+                    </button>
+                  </form>
+                )}
+              </section>
+            )}
+
             <form className="command-input" onSubmit={handleSubmit}>
               <button
                 className={`voice-button ${orbState === "listening" ? "is-listening" : ""}`}
@@ -509,7 +664,11 @@ export function DashboardExperience({
               <p className="eyebrow">PRÓXIMO PASO</p>
               <h2>{nextStep.title}</h2>
               <p>{nextStep.body}</p>
-              <button type="button" className="gold-button gold-button--small" onClick={() => askFor(nextStep.prompt)}>
+              <button
+                type="button"
+                className="gold-button gold-button--small"
+                onClick={() => (nextStep.field ? startAnswer(nextStep.field) : (goTo("actividad"), void classify()))}
+              >
                 {nextStep.cta} <span aria-hidden="true">↗</span>
               </button>
               <span className="action-time">≈ 3 min · Requiere tu confirmación</span>
@@ -529,11 +688,17 @@ export function DashboardExperience({
                       <dt>{field.label}</dt>
                       <dd>
                         {pending ? (
-                          <button type="button" className="pending-button" onClick={() => askFor(field.prompt)}>
+                          <button
+                            type="button"
+                            className={`pending-button ${answering?.key === field.key ? "is-answering" : ""}`}
+                            onClick={() => startAnswer(field)}
+                          >
                             Pendiente <span aria-hidden="true">→</span>
                           </button>
                         ) : (
-                          displayValue(value)
+                          <button type="button" className="confirmed-value" onClick={() => startAnswer(field)} title="Cambiar este dato">
+                            {displayValue(value)}
+                          </button>
                         )}
                       </dd>
                     </div>
@@ -541,7 +706,8 @@ export function DashboardExperience({
                 })}
               </dl>
               <p className="case-summary__hint">
-                Pulsa cualquier dato pendiente y te preparo la frase para respondérmelo.
+                Pulsa un dato y te hago la pregunta concreta. Lo que respondas se
+                guarda en ese dato, no en otro.
               </p>
             </section>
 
@@ -552,11 +718,28 @@ export function DashboardExperience({
               </div>
 
               {!activity && (
-                <p className="activity-card__empty">
-                  {profile.business_description
-                    ? "Puedo reconocer el sector y decirte qué hay que comprobar en sede oficial."
-                    : "Describe primero tu actividad y la clasifico."}
-                </p>
+                <div className="activity-card__intro">
+                  <p>
+                    Traduce lo que has contado de tu negocio a la lengua de la
+                    Administración: qué sector es, y qué te va a pedir cada
+                    organismo por serlo.
+                  </p>
+                  <ul>
+                    <li><strong>Cómo</strong> — reconoce el sector por tus propias palabras y lo cruza con lo que ya hay en el expediente: local, socios, contratación, ventas fuera de España.</li>
+                    <li><strong>Qué te devuelve</strong> — la lista de trámites que te tocan, cada uno con la sede oficial donde se comprueba.</li>
+                    <li><strong>Qué resuelve</strong> — dejar de adivinar. Sabes qué papeles vas a necesitar antes de pisar una notaría.</li>
+                  </ul>
+                  <p className="activity-card__warn">
+                    El epígrafe de IAE y el código CNAE no los deduzco: se consultan
+                    en la sede y los confirmas tú antes de que entren al expediente.
+                  </p>
+                  {!profile.business_description && (
+                    <p className="activity-card__warn">
+                      Necesito primero tu actividad. Pulsa «Actividad» en el
+                      expediente y te la pregunto.
+                    </p>
+                  )}
+                </div>
               )}
 
               {activity && (
@@ -585,11 +768,20 @@ export function DashboardExperience({
                     </ol>
                   )}
 
+                  <p className="activity-card__result">
+                    {activity.obligationsToVerify.length} trámites que te tocan por
+                    ser {activity.sectorLabel.toLowerCase()}, cada uno con su sede.
+                    Ninguno se da por bueno hasta comprobarlo.
+                  </p>
                   <p className="activity-card__codes">{activity.codesNote}</p>
 
                   {activity.nextQuestions.length > 0 && (
-                    <button type="button" className="text-button text-button--tiny" onClick={() => askFor(activity.nextQuestions[0] + " ")}>
-                      Responder: {activity.nextQuestions[0]}
+                    <button
+                      type="button"
+                      className="text-button text-button--tiny"
+                      onClick={() => firstPending && startAnswer(firstPending)}
+                    >
+                      {activity.nextQuestions[0]}
                     </button>
                   )}
                 </>

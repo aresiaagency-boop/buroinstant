@@ -2215,3 +2215,157 @@ a {
   font-size: 0.66rem;
   line-height: 1.55;
 }
+
+/* ── Respuesta dirigida a un dato del expediente ─────────────────────── */
+
+.answer-card {
+  margin-top: 1rem;
+  padding: 1rem 1.15rem 1.2rem;
+  border: 1px solid rgba(219, 184, 109, 0.28);
+  background: rgba(219, 184, 109, 0.05);
+  scroll-margin-top: 5rem;
+}
+
+.answer-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.55rem;
+  color: var(--gold-antique);
+  font-family: var(--font-mono);
+  font-size: 0.56rem;
+  letter-spacing: 0.16em;
+}
+
+.answer-card h3 {
+  margin: 0 0 0.35rem;
+  font-family: var(--font-display);
+  font-size: 1.08rem;
+  font-weight: 500;
+}
+
+.answer-card__why {
+  margin: 0 0 0.9rem;
+  color: #797a79;
+  font-size: 0.74rem;
+  line-height: 1.55;
+}
+
+.answer-card__options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.answer-option {
+  padding: 0.5rem 0.9rem;
+  border: 1px solid var(--line);
+  background: rgba(6, 9, 13, 0.6);
+  color: var(--ivory);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: 0.82rem;
+  transition: border-color 150ms ease, background 150ms ease;
+}
+
+.answer-option:hover,
+.answer-option:focus-visible {
+  border-color: rgba(219, 184, 109, 0.55);
+  background: rgba(219, 184, 109, 0.09);
+}
+
+.answer-card__form {
+  display: flex;
+  gap: 0.6rem;
+}
+
+.answer-card__form input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--line);
+  background: rgba(4, 6, 9, 0.7);
+  color: var(--ivory);
+  font-family: var(--font-sans);
+  font-size: 0.86rem;
+}
+
+.answer-card__form input:focus-visible {
+  border-color: rgba(219, 184, 109, 0.5);
+  outline: none;
+}
+
+.pending-button.is-answering {
+  border-color: var(--gold-molten);
+  background: rgba(219, 184, 109, 0.16);
+  color: var(--gold-white);
+}
+
+.confirmed-value {
+  padding: 0;
+  border: 0;
+  border-bottom: 1px dotted rgba(219, 184, 109, 0.35);
+  background: transparent;
+  color: var(--ivory);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
+  text-align: right;
+}
+
+.confirmed-value:hover {
+  color: var(--gold-white);
+}
+
+/* ── Actividad: qué es, cómo trabaja, qué resuelve ───────────────────── */
+
+.activity-card__intro p {
+  margin: 0 0 0.7rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.6;
+}
+
+.activity-card__intro ul {
+  margin: 0 0 0.8rem;
+  padding-left: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.activity-card__intro li {
+  padding-left: 0.85rem;
+  border-left: 1px solid var(--line);
+  color: #797a79;
+  font-size: 0.72rem;
+  line-height: 1.55;
+}
+
+.activity-card__intro strong {
+  color: var(--gold-antique);
+  font-weight: 500;
+}
+
+.activity-card__warn {
+  color: #6d6e6c !important;
+  font-size: 0.68rem !important;
+}
+
+.activity-card__result {
+  margin: 0 0 0.7rem;
+  color: var(--ivory);
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+
+/* Las secciones no quedan bajo la cabecera al desplazarse hasta ellas. */
+.orbe-console,
+.case-rail,
+.next-action,
+.case-summary,
+.activity-card,
+.official-source,
+.trust-note {
+  scroll-margin-top: 4.5rem;
+}
