@@ -241,3 +241,42 @@ bucle.
 Arreglo recomendado: comparar en milisegundos y sin sumar horas fijas —
 `{{ new Date(JSON.parse($json.messages.last()).timestampt).getTime() }}` menor o
 igual que `{{ Date.now() - 5000 }}`, con operador numérico.
+
+
+## Hallazgo 12 — el 400 de BUROINSTANT_PERSISTIR era del «Ejecutar paso»
+
+El `Bad request / INVALID_EVENT` aparecía al pulsar «Ejecutar paso» sobre el
+nodo: en una ejecución parcial las expresiones se resuelven contra datos
+incompletos y el cuerpo sale mal formado. En las ejecuciones reales por webhook
+el mismo nodo responde `202 LINK_REQUIRED`, es decir, pasa la firma, pasa el
+esquema y la instancia coincide.
+
+Se comprobó además el cuerpo real contra `whatsappWebhookSchema`: válido. Y se
+midió qué variantes lo romperían — un `timestamp` con offset (`+02:00` en vez de
+`Z`), un `text` vacío o un `type` vacío — para que quede documentado.
+
+La ruta ahora distingue los tres casos en vez de responder `INVALID_EVENT` a
+todo: `MALFORMED_JSON`, `INVALID_EVENT` con los campos que fallan, e
+`INSTANCE_MISMATCH` diciendo qué instancia llega y cuál se espera. Los nombres
+de instancia no son secretos y decirlos ahorra horas.
+
+## Hallazgo 13 — el modo del cuerpo de la herramienta
+
+`specifyBody: model` hace que n8n espere del modelo un campo llamado `body`.
+Cuando no lo generaba, el agente moría con «Received tool input did not match
+expected schema ✖ Required → at body» y ni `onError` lo salvaba, porque el fallo
+ocurre en el agente, no en el nodo.
+
+Vuelto a `specifyBody: json` con el marcador `{question}` y su definición. El
+modelo rellena bien ese campo. El error «Requerido → question» que se veía antes
+solo sale al pulsar «Ejecutar paso», donde no hay agente que lo rellene.
+
+Estado verificado tras el cambio: ocho ejecuciones seguidas por webhook, todas
+Succeeded, con AI Agent, BUROINSTANT_PERSISTIR y whatsapp_response en verde.
+
+## Pendiente que no se toca: reintento de whatsapp_response
+
+La ejecución 42 falló con «The connection timed out» al llamar a Evolution. n8n
+sugiere activar «Retry on Fail», pero un reintento ciego sobre un envío puede
+duplicar el mensaje si la primera llamada llegó a entregarse antes de expirar.
+Queda anotado para decidirlo con criterio, no activado por defecto.

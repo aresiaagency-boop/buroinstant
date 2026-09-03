@@ -26,9 +26,33 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "INVALID_SIGNATURE" }, { status: 401 });
   }
 
-  const parsed = whatsappWebhookSchema.safeParse(JSON.parse(rawBody));
-  if (!parsed.success || parsed.data.instance !== configuredInstance) {
-    return NextResponse.json({ error: "INVALID_EVENT" }, { status: 400 });
+  // Un rechazo tiene que decir POR QUÉ. "INVALID_EVENT" a secas obligaba a
+  // adivinar si fallaba el cuerpo o la instancia configurada.
+  let payload: unknown;
+  try {
+    payload = JSON.parse(rawBody);
+  } catch {
+    return NextResponse.json({ error: "MALFORMED_JSON" }, { status: 400 });
+  }
+
+  const parsed = whatsappWebhookSchema.safeParse(payload);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "INVALID_EVENT", fields: parsed.error.flatten().fieldErrors },
+      { status: 400 },
+    );
+  }
+  if (parsed.data.instance !== configuredInstance) {
+    // Los nombres de instancia no son secretos: decirlos ahorra horas.
+    return NextResponse.json(
+      {
+        error: "INSTANCE_MISMATCH",
+        message: `El evento llega con la instancia "${parsed.data.instance}" y EVOLUTION_API_INSTANCE está configurada como "${configuredInstance}". Deben coincidir.`,
+        received: parsed.data.instance,
+        expected: configuredInstance,
+      },
+      { status: 400 },
+    );
   }
   const phone = normalizeWhatsAppPhone(parsed.data.phone);
   const rate = checkEphemeralRateLimit(`wa:${parsed.data.instance}:${phone}`, {
