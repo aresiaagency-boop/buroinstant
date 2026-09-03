@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   fetchOfficialSource,
   isAllowedOfficialUrl,
+  officialSourceCatalog,
   searchOfficialSourceCatalog,
   toSourceReference,
 } from "@/lib/official-sources";
@@ -98,8 +99,11 @@ export async function POST(request: Request) {
     ? [{ authority: "SEDE OFICIAL", title: parsed.data.url, url: parsed.data.url, keywords: [] as string[] }]
     : searchOfficialSourceCatalog(parsed.data.question).slice(0, 3);
 
-  const consulted = await Promise.all(
-    candidates.map(async (source) => {
+  type Candidata = { authority: string; title: string; url: string };
+
+  const consultar = async (fuentes: Candidata[]) =>
+    Promise.all(
+      fuentes.map(async (source) => {
       try {
         const snapshot = await fetchOfficialSource(source.url);
         const util = contenidoUtil(snapshot.normalizedText);
@@ -113,17 +117,35 @@ export async function POST(request: Request) {
           usableChars: snapshot.normalizedText.trim().length,
         };
       } catch (error) {
-        return {
-          authority: source.authority,
-          title: source.title,
-          url: source.url,
-          fetchedAt: null,
-          status: "UNAVAILABLE" as const,
-          reason: error instanceof Error ? error.message : "OFFICIAL_SOURCE_UNAVAILABLE",
-        };
-      }
-    }),
-  );
+          return {
+            authority: source.authority,
+            title: source.title,
+            url: source.url,
+            fetchedAt: null,
+            status: "UNAVAILABLE" as const,
+            reason: error instanceof Error ? error.message : "OFFICIAL_SOURCE_UNAVAILABLE",
+          };
+        }
+      }),
+    );
+
+  let consulted = await consultar(candidates);
+
+  // Si ninguna de las sedes que casan por palabra clave trae contenido legible
+  // —le pasa al Asistente Censal, que es una aplicación de Javascript— se
+  // intenta con las de respaldo del catálogo antes de rendirse. Rendirse aquí
+  // significa que el agente no puede contestar, así que vale la pena la segunda
+  // llamada.
+  if (!parsed.data.url && !consulted.some((entry) => entry.status === "VERIFIED")) {
+    const yaConsultadas = new Set(consulted.map((entry) => entry.url));
+    const respaldo = officialSourceCatalog
+      .filter((source) => !yaConsultadas.has(source.url))
+      .filter((source) => /portal de empresas|boletin oficial|boletín oficial/i.test(source.title))
+      .slice(0, 2);
+    if (respaldo.length > 0) {
+      consulted = [...consulted, ...(await consultar(respaldo as unknown as Candidata[]))];
+    }
+  }
 
   const verified = consulted.filter((entry) => entry.status === "VERIFIED");
   // Primero la sede que trae contenido de verdad; después las que solo responden.
