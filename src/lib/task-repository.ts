@@ -17,7 +17,7 @@ export class ProjectAccessError extends Error {
   }
 }
 
-async function assertProjectAccess(actor: Actor, projectId: string) {
+export async function assertProjectAccess(actor: Actor, projectId: string) {
   const { userId } = await ensureActorWorkspace(actor);
   const sql = db();
   const rows = await sql<Array<{ workspace_id: string }>>`

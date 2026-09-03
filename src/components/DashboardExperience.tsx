@@ -6,6 +6,7 @@ import { HexagonalGravityField } from "@/components/HexagonalGravityField";
 import { LivingGoldenOrb } from "@/components/LivingGoldenOrb";
 import { VoiceConversation } from "@/components/VoiceConversation";
 import { emitOrb } from "@/lib/orb-events";
+import type { ActivityClassification } from "@/lib/activity-classifier";
 import type { Actor, ExtractedField, OrbState } from "@/types/domain";
 
 type ChatMessage = { role: "user" | "assistant"; text: string };
@@ -103,6 +104,8 @@ export function DashboardExperience({
       text: "Cuéntame qué empresa quieres crear. Puedes hablar con naturalidad; yo convertiré la conversación en datos estructurados.",
     },
   ]);
+  const [activity, setActivity] = useState<ActivityClassification | null>(null);
+  const [classifying, setClassifying] = useState(false);
   const [sourceState, setSourceState] = useState<{
     status: "IDLE" | "CHECKING" | "VERIFIED" | "UNAVAILABLE";
     checkedAt: string | null;
@@ -200,6 +203,47 @@ export function DashboardExperience({
       const end = inputRef.current?.value.length ?? 0;
       inputRef.current?.setSelectionRange(end, end);
     }, 0);
+  }
+
+  /**
+   * Clasifica la actividad descrita. El resultado nunca trae epígrafe ni CNAE:
+   * trae el sector reconocido y la lista de lo que hay que comprobar en sede.
+   */
+  async function classify() {
+    const description = String(profile.business_description ?? "").trim();
+    if (!description || classifying) return;
+    setClassifying(true);
+    transition("thinking", "Clasificando la actividad");
+    try {
+      const response = await fetch("/api/activity/classify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          description,
+          municipality: (profile.municipality as string | undefined) ?? null,
+          hasPremises: typeof profile.physical_premises === "boolean" ? profile.physical_premises : null,
+          onlineActivity: typeof profile.online_activity === "boolean" ? profile.online_activity : null,
+        }),
+      });
+      if (!response.ok) {
+        transition("warning", "No he podido clasificar la actividad");
+        setNotice("No he podido clasificar la actividad. Descríbela con algo más de detalle.");
+        return;
+      }
+      const result = (await response.json()) as ActivityClassification;
+      setActivity(result);
+      transition(result.sector === "SIN_DETERMINAR" ? "blocked" : "validating", "Actividad clasificada");
+      setNotice(
+        result.sector === "SIN_DETERMINAR"
+          ? "Tu descripción todavía no encaja en un sector. Cuéntame algo más."
+          : `Actividad reconocida como ${result.sectorLabel}. Falta comprobar ${result.obligationsToVerify.length} puntos en sede oficial.`,
+      );
+      window.setTimeout(() => setOrbState("idle"), 1_600);
+    } catch {
+      transition("warning", "Fallo de red al clasificar");
+    } finally {
+      setClassifying(false);
+    }
   }
 
   /** Comprueba en vivo que la sede de la AEAT responde ahora mismo. */
@@ -347,6 +391,7 @@ export function DashboardExperience({
           <a className="nav-item is-active" href="#orbe" aria-label="Orbe"><span>⌾</span><small>Orbe</small></a>
           <a className="nav-item" href="#expediente" aria-label="Proyecto"><span>◇</span><small>Proyecto</small></a>
           <a className="nav-item" href="#tareas" aria-label="Trámites"><span>✓</span><small>Trámites</small></a>
+          <a className="nav-item" href="#actividad" aria-label="Actividad"><span>◈</span><small>Actividad</small></a>
           <a className="nav-item" href="#fuentes" aria-label="AEAT"><span>§</span><small>AEAT</small></a>
           <a className="nav-item" href="#trazabilidad" aria-label="Trazabilidad"><span>▱</span><small>Traza</small></a>
         </nav>
@@ -498,6 +543,67 @@ export function DashboardExperience({
               <p className="case-summary__hint">
                 Pulsa cualquier dato pendiente y te preparo la frase para respondérmelo.
               </p>
+            </section>
+
+            <section className="activity-card" id="actividad">
+              <div className="section-heading">
+                <h2>Actividad</h2>
+                <span>{activity ? `confianza ${Math.round(activity.confidence * 100)}%` : "sin clasificar"}</span>
+              </div>
+
+              {!activity && (
+                <p className="activity-card__empty">
+                  {profile.business_description
+                    ? "Puedo reconocer el sector y decirte qué hay que comprobar en sede oficial."
+                    : "Describe primero tu actividad y la clasifico."}
+                </p>
+              )}
+
+              {activity && (
+                <>
+                  <strong className="activity-card__sector">{activity.sectorLabel}</strong>
+                  {activity.evidence.length > 0 && (
+                    <p className="activity-card__evidence">
+                      Por lo que has dicho: {activity.evidence.slice(0, 4).join(", ")}
+                    </p>
+                  )}
+                  <p className={`activity-card__flag activity-card__flag--${activity.regulatoryExposure === "REQUIERE_COMPROBACION" ? "check" : "clear"}`}>
+                    {activity.regulatoryReason}
+                  </p>
+
+                  {activity.obligationsToVerify.length > 0 && (
+                    <ol className="activity-card__list">
+                      {activity.obligationsToVerify.map((item) => (
+                        <li key={item.topic}>
+                          <strong>{item.topic}</strong>
+                          <span>{item.why}</span>
+                          <a href={item.sourceUrl} target="_blank" rel="noreferrer">
+                            {item.authority} <span aria-hidden="true">↗</span>
+                          </a>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+
+                  <p className="activity-card__codes">{activity.codesNote}</p>
+
+                  {activity.nextQuestions.length > 0 && (
+                    <button type="button" className="text-button text-button--tiny" onClick={() => askFor(activity.nextQuestions[0] + " ")}>
+                      Responder: {activity.nextQuestions[0]}
+                    </button>
+                  )}
+                </>
+              )}
+
+              <button
+                type="button"
+                className="gold-button gold-button--small"
+                onClick={() => void classify()}
+                disabled={classifying || !profile.business_description}
+              >
+                {classifying ? "Clasificando…" : activity ? "Volver a clasificar" : "Clasificar actividad"}{" "}
+                <span aria-hidden="true">↗</span>
+              </button>
             </section>
 
             <section className="official-source" id="fuentes">
