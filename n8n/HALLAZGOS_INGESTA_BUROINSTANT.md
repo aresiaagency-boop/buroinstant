@@ -88,7 +88,24 @@ Corrección recomendada, en este orden:
 No se ha tocado: cambia el camino de una credencial en producción y requiere
 rotar primero.
 
-## Hallazgo 3 — el agente no sabe por qué canal le hablan
+## Hallazgo 3 — el agente respondía «no puedo procesar ese mensaje» (CORREGIDO)
+
+Prueba real por WhatsApp el 3 de septiembre: a un «Hola» el agente contestó «No
+puedo procesar ese tipo de mensajes»; a «Quiero una empresa para mi solo»,
+«No puedo comprender el mensaje que enviaste». Las tres ejecuciones figuran como
+Success en n8n: el fallo no era técnico, era el prompt.
+
+El System Message tenía 1.374 caracteres de marcador. Se ha sustituido por el
+de `n8n/prompts/system-message.txt` (8.036 caracteres), que define el rol de
+representante ejecutivo sénior de BUROINSTANT, despliega qué hace el producto y
+sus servicios, prohíbe expresamente esa familia de frases y cierra cada mensaje
+invitando a https://buroinstant.vercel.app.
+
+Detalle que condiciona todo el prompt: `whatsapp_response` envía
+`{{ $json.output }}`, la salida literal del agente. Por eso el prompt prohíbe
+JSON y markdown: lo que escriba el agente es exactamente lo que lee la persona.
+
+## Hallazgo 4 — el agente no sabe por qué canal le hablan
 
 `AI Agent` recibe `Mensaje del usuario: {{ $('Code2').item.json.message }}`.
 No incluye el canal, así que el prompt no puede distinguir WhatsApp de web.
