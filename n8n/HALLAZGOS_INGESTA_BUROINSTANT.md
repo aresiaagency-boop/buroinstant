@@ -177,3 +177,33 @@ las pasan (ejecuciones 4 a 11), pero las cargas de prueba enviadas al webhook se
 detienen ahí, así que no se pudo leer una respuesta del agente sin un mensaje
 real. Conviene documentar qué exige cada guarda: hoy un rechazo es silencioso y
 la ejecución figura como Success.
+
+
+## Hallazgo 9 — el nodo de herramienta tumbaba toda la ejecución (CORREGIDO)
+
+`consultar_fuente_oficial` se configuró con credencial `httpBearerAuth`. El nodo
+`toolHttpRequest` no la admite: falla con «The type httpBearerAuth is not
+supported», y como era un sub-nodo del agente, el error se propagaba y la
+ejecución entera terminaba en Error. La persona se quedaba sin respuesta.
+
+Dos correcciones:
+
+1. El nodo ya no lleva credencial (`authentication: none`). La ruta
+   `/api/internal/official-sources/lookup` admite ahora dos modos: con prueba de
+   origen máquina se puede además indicar una URL concreta y el límite es de 60
+   consultas por minuto; sin credencial solo se admite la pregunta, con 20 por
+   minuto. Lo que devuelve es contenido público de sedes del Estado sobre una
+   lista cerrada, así que no hay secreto que proteger, y ninguna clave tiene que
+   viajar hasta n8n.
+2. `onError: continueRegularOutput`. Una fuente que no responde no puede volver a
+   dejar a nadie sin contestación: el agente recibe el fallo como texto y dice
+   que no ha podido verificarlo.
+
+## Nota sobre las pruebas sintéticas
+
+Las cargas enviadas a mano al webhook no completan el flujo: el antirrebote
+(`Switch2` + `Wait1` + el desfase de 3 horas del hallazgo 7) las deja dando
+vueltas en el bucle de espera indefinidamente, y hubo que pararlas a mano. Los
+mensajes reales de WhatsApp terminan en unos 2 segundos. Mientras ese
+antirrebote dependa de una suma de horas fija, el flujo no es comprobable sin un
+teléfono real: conviene arreglarlo antes que nada.
