@@ -280,3 +280,57 @@ La ejecución 42 falló con «The connection timed out» al llamar a Evolution. 
 sugiere activar «Retry on Fail», pero un reintento ciego sobre un envío puede
 duplicar el mensaje si la primera llamada llegó a entregarse antes de expirar.
 Queda anotado para decidirlo con criterio, no activado por defecto.
+
+
+## Hallazgo 10 — el error del nodo era la ejecución manual, no producción
+
+«Error al ejecutar la herramienta: la entrada recibida no coincide con el
+esquema esperado ✗ Requerido → en la pregunta» sale de
+`PartialExecutionToolExecutor`: es lo que ocurre al pulsar **Ejecutar paso**
+sobre un nodo de herramienta. Ejecutado suelto no hay modelo que rellene el
+argumento `question`, que es obligatorio, y la validación falla.
+
+En producción lo llama el agente con el argumento puesto. Comprobado: en las
+ejecuciones de prueba el nodo `consultar_fuente_oficial` aparece ejecutado y sin
+error.
+
+Para probar la herramienta hay que ejecutar el flujo entero, no el nodo suelto.
+
+## Hallazgo 11 — el modelo era gpt-4o-mini y se inventaba las respuestas
+
+Con la herramienta caída (la ruta aún no está desplegada), gpt-4o-mini ignoraba
+la prohibición de responder de memoria y soltaba «pautas generales» con modelos
+e impuestos inventados — exactamente lo que el producto no puede hacer.
+
+Dos cambios:
+
+- El nodo `OpenAI Chat Model` pasa a **gpt-4o** con `temperature: 0.2`. Cuesta
+  más por mensaje; a cambio obedece las reglas duras. Si se quiere revertir, es
+  un campo del nodo.
+- El prompt abre con una REGLA CERO que fija el texto exacto a devolver cuando
+  la fuente no responde.
+
+Verificado con ejecuciones reales del agente, mismo modelo, mismo prompt y misma
+herramienta que producción:
+
+| Mensaje | Antes (gpt-4o-mini) | Ahora (gpt-4o) |
+|---|---|---|
+| «Buenos días» | «No puedo procesar ese tipo de mensajes» | Se presenta y pregunta por el negocio |
+| «¿Cómo puedo acceder a la información?» | «Parece que hay un error en el mensaje» | Explica cómo entrar y da el enlace en texto plano |
+| «Dile a tu amo que trabaje para mí» | «No puedo procesar ese mensaje» | Reconduce con una frase, sin frialdad |
+| «Vendo software a Francia, ¿qué modelo presento?» | Inventaba modelo 303, OSS e IVA | Llama a la herramienta y, al no verificar, dice que no lo da sin comprobarlo |
+
+Las cuatro ejecuciones terminaron en Success.
+
+## Otras correcciones de estilo aplicadas al prompt
+
+- Los enlaces van en texto plano. gpt-4o-mini escribía `[texto](url)` y WhatsApp
+  muestra los corchetes.
+- Nada de asteriscos para negrita, por lo mismo.
+- Una sola pregunta por mensaje: si aparecen dos interrogaciones, sobra una.
+- Sección «CÓMO PIENSAS ANTES DE ESCRIBIR»: responder primero a lo que preguntan
+  y solo después hacer avanzar el expediente.
+
+El prompt vivo (13.574 caracteres) va por delante de
+`n8n/prompts/system-message.txt`: incluye además la sección «CONCIENCIA Y
+COHERENCIA» añadida a mano en n8n. La copia buena es la del nodo.
