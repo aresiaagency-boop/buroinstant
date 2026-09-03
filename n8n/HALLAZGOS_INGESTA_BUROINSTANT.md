@@ -119,3 +119,61 @@ Mensaje del usuario: {{ $('Code2').item.json.message }}
 
 Mientras no se añada, el agente asume WhatsApp, que es el único canal que hoy
 entra por este workflow.
+
+
+## Hallazgo 5 — el workflow ejecutaba una versión publicada antigua (CORREGIDO)
+
+Esta era la causa real de que el agente siguiera respondiendo «no puedo
+procesar» después de instalar el prompt nuevo.
+
+n8n separa el borrador de la versión publicada. `PATCH /rest/workflows/:id`
+guarda el borrador y devuelve 200, pero las ejecuciones siguen usando
+`activeVersionId`. Se comprobó leyendo `workflowData` de las ejecuciones 11 y
+12: ambas corrieron con un `systemMessage` de 1.374 caracteres mientras el
+borrador ya tenía 8.036.
+
+Publicar por API: `POST /rest/workflows/:id/activate` con `{versionId}`. Ni
+`PATCH` de `activeVersionId` ni desactivar y reactivar sirven.
+
+Verificado: la ejecución 16 corre con `systemMessage` de 8.914 caracteres.
+
+**Regla para el futuro: después de editar el workflow por API hay que publicar.**
+
+## Hallazgo 6 — el agente ya consulta fuente oficial
+
+Nodo nuevo `consultar_fuente_oficial`
+(`@n8n/n8n-nodes-langchain.toolHttpRequest`), conectado al AI Agent por
+`ai_tool`. Llama a `POST /api/internal/official-sources/lookup` con la misma
+credencial Bearer.
+
+La lista de dominios admitidos vive en el servidor, no en el prompt: el modelo
+manda una pregunta, nunca una URL. Si aun así envía una, tiene que estar en
+`OFFICIAL_SOURCE_HOSTS` o se rechaza con 400. Así un mensaje de un tercero no
+puede convertir la ruta en un proxy.
+
+Cuando ninguna sede responde, la ruta devuelve `verdict: NO_VERIFIED_SOURCE` y
+el prompt obliga a decirlo en lugar de rellenar el hueco.
+
+La herramienta no funcionará hasta que se despliegue la aplicación: hoy esa
+ruta todavía no existe en producción.
+
+## Hallazgo 7 — el desfase de 3 horas del antirrebote
+
+`Switch2` decide si continuar comparando
+`timestampt + 3 horas` con el momento actual. Es un ajuste de zona horaria
+escrito a mano.
+
+Dos consecuencias: dejará de cuadrar cuando cambie el horario de verano, y si la
+marca de tiempo no encaja, la ejecución entra en el bucle `Wait1` y se queda
+corriendo indefinidamente — ocurrió en una prueba y hubo que pararla a mano.
+
+Recomendación: comparar en UTC y usar la zona horaria del workflow en lugar de
+sumar horas fijas.
+
+## Hallazgo 8 — Code2 descarta cargas sintéticas
+
+`Code2` tiene tres guardas que devuelven `[]`. Los mensajes reales de WhatsApp
+las pasan (ejecuciones 4 a 11), pero las cargas de prueba enviadas al webhook se
+detienen ahí, así que no se pudo leer una respuesta del agente sin un mensaje
+real. Conviene documentar qué exige cada guarda: hoy un rechazo es silencioso y
+la ejecución figura como Success.
