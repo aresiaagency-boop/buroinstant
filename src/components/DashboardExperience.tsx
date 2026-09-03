@@ -47,6 +47,35 @@ const phaseLabels = [
   "Operativa",
 ];
 
+/** Los cinco datos que abren el diagnóstico, con la frase que desbloquea cada uno. */
+const caseFields = [
+  {
+    key: "business_description",
+    label: "Actividad",
+    prompt: "Mi actividad va a ser ",
+  },
+  {
+    key: "preferred_legal_form",
+    label: "Forma jurídica",
+    prompt: "Estoy pensando en constituir una ",
+  },
+  {
+    key: "number_of_founders",
+    label: "Fundadores",
+    prompt: "Vamos a ser  socios",
+  },
+  {
+    key: "municipality",
+    label: "Municipio",
+    prompt: "La empresa estará en ",
+  },
+  {
+    key: "physical_premises",
+    label: "Local físico",
+    prompt: "Sobre el local: ",
+  },
+] as const;
+
 function displayValue(value: unknown) {
   if (typeof value === "boolean") return value ? "Sí" : "No";
   if (value === null || value === undefined || value === "") return "Pendiente";
@@ -74,6 +103,10 @@ export function DashboardExperience({
       text: "Cuéntame qué empresa quieres crear. Puedes hablar con naturalidad; yo convertiré la conversación en datos estructurados.",
     },
   ]);
+  const [sourceState, setSourceState] = useState<{
+    status: "IDLE" | "CHECKING" | "VERIFIED" | "UNAVAILABLE";
+    checkedAt: string | null;
+  }>({ status: "IDLE", checkedAt: null });
   const [notice, setNotice] = useState(
     configuration.database
       ? "Expediente conectado a PostgreSQL"
@@ -150,6 +183,48 @@ export function DashboardExperience({
       ]);
     } finally {
       setIsSending(false);
+    }
+  }
+
+  /**
+   * Cada dato pendiente del expediente es un control: al pulsarlo, la pregunta
+   * que lo desbloquea entra en el campo de conversación y el foco va allí.
+   * Nada de tarjetas decorativas que no llevan a ninguna parte.
+   */
+  function askFor(question: string) {
+    setInput(question);
+    setNotice("Completa la frase con tus datos y pulsa Manifestar.");
+    transition("listening", "Esperando tu respuesta");
+    window.setTimeout(() => {
+      inputRef.current?.focus();
+      const end = inputRef.current?.value.length ?? 0;
+      inputRef.current?.setSelectionRange(end, end);
+    }, 0);
+  }
+
+  /** Comprueba en vivo que la sede de la AEAT responde ahora mismo. */
+  async function checkOfficialSource() {
+    setSourceState({ status: "CHECKING", checkedAt: null });
+    transition("consulting_official_source", "Consultando la sede de la AEAT");
+    try {
+      const response = await fetch("/api/official-sources/search?q=empresa%20censal%20036");
+      const payload = (await response.json()) as {
+        results?: Array<{ status?: string; fetchedAt?: string | null }>;
+      };
+      const verified = (payload.results ?? []).find((entry) => entry.status === "VERIFIED");
+      if (!response.ok || !verified) {
+        setSourceState({ status: "UNAVAILABLE", checkedAt: new Date().toISOString() });
+        transition("warning", "La sede oficial no responde");
+        setNotice("La sede oficial no responde ahora. No doy nada por bueno sin comprobarlo.");
+        return;
+      }
+      setSourceState({ status: "VERIFIED", checkedAt: verified.fetchedAt ?? new Date().toISOString() });
+      transition("success", "Fuente oficial verificada");
+      setNotice("Fuente oficial verificada en este momento.");
+      window.setTimeout(() => setOrbState("idle"), 1_600);
+    } catch {
+      setSourceState({ status: "UNAVAILABLE", checkedAt: new Date().toISOString() });
+      transition("warning", "No he podido alcanzar la sede oficial");
     }
   }
 
@@ -234,6 +309,34 @@ export function DashboardExperience({
 
   const confirmedCount = Object.keys(profile).length;
   const phaseIndex = confirmedCount >= 4 ? 1 : 0;
+  const firstPending = caseFields.find((field) => {
+    const value = profile[field.key];
+    return value === undefined || value === null || value === "";
+  });
+  const nextStep = firstPending
+    ? {
+        title: firstPending.key === "business_description" ? "Describe tu actividad" : `Falta: ${firstPending.label.toLowerCase()}`,
+        body:
+          firstPending.key === "business_description"
+            ? "Empieza explicando qué vas a ofrecer, a quién y desde dónde operarás."
+            : "Es el siguiente dato que desbloquea el diagnóstico de tu expediente.",
+        cta: firstPending.key === "business_description" ? "Empezar ahora" : "Responder ahora",
+        prompt: firstPending.prompt,
+      }
+    : {
+        title: "Listo para el diagnóstico",
+        body: "Ya tengo los datos mínimos. Pídeme el diagnóstico y contrasto la ruta con la fuente oficial.",
+        cta: "Pedir diagnóstico",
+        prompt: "Ya tienes mis datos. Prepárame el diagnóstico de mi empresa.",
+      };
+  const sourceLabel =
+    sourceState.status === "VERIFIED"
+      ? `Verificada ${new Date(sourceState.checkedAt ?? Date.now()).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}`
+      : sourceState.status === "UNAVAILABLE"
+        ? "No responde ahora mismo"
+        : sourceState.status === "CHECKING"
+          ? "Comprobando la sede…"
+          : "Sin consulta en vivo todavía";
 
   return (
     <main className="dashboard-shell">
@@ -245,7 +348,7 @@ export function DashboardExperience({
           <a className="nav-item" href="#expediente" aria-label="Proyecto"><span>◇</span><small>Proyecto</small></a>
           <a className="nav-item" href="#tareas" aria-label="Trámites"><span>✓</span><small>Trámites</small></a>
           <a className="nav-item" href="#fuentes" aria-label="AEAT"><span>§</span><small>AEAT</small></a>
-          <a className="nav-item" href="#documentos" aria-label="Documentos"><span>▱</span><small>Docs</small></a>
+          <a className="nav-item" href="#trazabilidad" aria-label="Trazabilidad"><span>▱</span><small>Traza</small></a>
         </nav>
         <form action="/api/auth/logout" method="post">
           <button className="nav-item nav-item--button" type="submit" aria-label="Cerrar sesión">
@@ -359,12 +462,11 @@ export function DashboardExperience({
           <aside className="case-rail" id="expediente">
             <section className="next-action" id="tareas">
               <p className="eyebrow">PRÓXIMO PASO</p>
-              <h2>{confirmedCount ? "Completar los datos iniciales" : "Describe tu actividad"}</h2>
-              <p>
-                {confirmedCount
-                  ? "Faltan las decisiones mínimas para generar un diagnóstico con contexto suficiente."
-                  : "Empieza explicando qué vas a ofrecer, a quién y desde dónde operarás."}
-              </p>
+              <h2>{nextStep.title}</h2>
+              <p>{nextStep.body}</p>
+              <button type="button" className="gold-button gold-button--small" onClick={() => askFor(nextStep.prompt)}>
+                {nextStep.cta} <span aria-hidden="true">↗</span>
+              </button>
               <span className="action-time">≈ 3 min · Requiere tu confirmación</span>
             </section>
 
@@ -374,12 +476,28 @@ export function DashboardExperience({
                 <span>{confirmedCount} datos confirmados</span>
               </div>
               <dl>
-                <div><dt>Actividad</dt><dd>{displayValue(profile.business_description)}</dd></div>
-                <div><dt>Forma jurídica</dt><dd>{displayValue(profile.preferred_legal_form)}</dd></div>
-                <div><dt>Fundadores</dt><dd>{displayValue(profile.number_of_founders)}</dd></div>
-                <div><dt>Municipio</dt><dd>{displayValue(profile.municipality)}</dd></div>
-                <div><dt>Local físico</dt><dd>{displayValue(profile.physical_premises)}</dd></div>
+                {caseFields.map((field) => {
+                  const value = profile[field.key];
+                  const pending = value === undefined || value === null || value === "";
+                  return (
+                    <div key={field.key}>
+                      <dt>{field.label}</dt>
+                      <dd>
+                        {pending ? (
+                          <button type="button" className="pending-button" onClick={() => askFor(field.prompt)}>
+                            Pendiente <span aria-hidden="true">→</span>
+                          </button>
+                        ) : (
+                          displayValue(value)
+                        )}
+                      </dd>
+                    </div>
+                  );
+                })}
               </dl>
+              <p className="case-summary__hint">
+                Pulsa cualquier dato pendiente y te preparo la frase para respondérmelo.
+              </p>
             </section>
 
             <section className="official-source" id="fuentes">
@@ -387,7 +505,10 @@ export function DashboardExperience({
               <div>
                 <span>FUENTE PRIMARIA</span>
                 <strong>Centro AEAT Empresas</strong>
-                <small>Sin consulta en vivo todavía</small>
+                <small>{sourceLabel}</small>
+                <button type="button" className="text-button text-button--tiny" onClick={() => void checkOfficialSource()} disabled={sourceState.status === "CHECKING"}>
+                  {sourceState.status === "CHECKING" ? "Comprobando…" : "Comprobar ahora"}
+                </button>
               </div>
               <a
                 href="https://sede.agenciatributaria.gob.es/Sede/empresas.html"
@@ -397,7 +518,7 @@ export function DashboardExperience({
               >↗</a>
             </section>
 
-            <section className="trust-note" id="documentos">
+            <section className="trust-note" id="trazabilidad">
               <span>TRAZABILIDAD ACTIVA</span>
               <p>Cada dato conserva canal, riesgo, estado de confirmación y fecha de entrada.</p>
             </section>

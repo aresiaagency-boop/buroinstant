@@ -75,21 +75,21 @@ export default async function LandingPage() {
         </div>
 
         <aside className="landing-rail" aria-label="Principios del sistema">
-          <div>
+          <a href="#paso-02">
             <span>01</span>
             <strong>Expediente único</strong>
             <p>Web, voz y WhatsApp alimentan la misma fuente de verdad.</p>
-          </div>
-          <div>
+          </a>
+          <a href="#paso-03">
             <span>02</span>
             <strong>Fuentes oficiales</strong>
             <p>AEAT, BOE, CIRCE y Seguridad Social antes que la suposición.</p>
-          </div>
-          <div>
+          </a>
+          <a href="#paso-04">
             <span>03</span>
             <strong>Decisiones trazables</strong>
             <p>Cada dato conserva origen, confirmación y momento de verificación.</p>
-          </div>
+          </a>
         </aside>
       </section>
 
@@ -105,7 +105,7 @@ export default async function LandingPage() {
 
         <ol className="landing-steps">
           {steps.map((step) => (
-            <li key={step.number}>
+            <li key={step.number} id={`paso-${step.number}`}>
               <span className="landing-steps__number">{step.number}</span>
               <strong>{step.title}</strong>
               <p>{step.body}</p>
