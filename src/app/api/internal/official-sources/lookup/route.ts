@@ -28,6 +28,20 @@ import { checkEphemeralRateLimit } from "@/lib/security/rate-limit";
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
+/**
+ * Algunas sedes devuelven una cáscara que solo se rellena con Javascript: el
+ * texto extraíble es un aviso de "Javascript no habilitado" y nada más. La
+ * fuente responde, pero no sirve para contestar. Se detecta para no ponerla por
+ * delante de otra que sí trae contenido, y para que el agente sepa que la sede
+ * contestó aunque el dato no esté ahí.
+ */
+function contenidoUtil(texto: string): boolean {
+  const limpio = texto.trim();
+  if (limpio.length < 400) return false;
+  if (/javascript no (est[aá] )?habilitado/i.test(limpio.slice(0, 400))) return false;
+  return true;
+}
+
 const schema = z.object({
   question: z.string().trim().min(3).max(500),
   url: z.string().url().max(500).optional(),
@@ -82,19 +96,21 @@ export async function POST(request: Request) {
 
   const candidates = parsed.data.url
     ? [{ authority: "SEDE OFICIAL", title: parsed.data.url, url: parsed.data.url, keywords: [] as string[] }]
-    : searchOfficialSourceCatalog(parsed.data.question).slice(0, 2);
+    : searchOfficialSourceCatalog(parsed.data.question).slice(0, 3);
 
   const consulted = await Promise.all(
     candidates.map(async (source) => {
       try {
         const snapshot = await fetchOfficialSource(source.url);
+        const util = contenidoUtil(snapshot.normalizedText);
         return {
           authority: source.authority,
           title: snapshot.title,
           url: snapshot.url,
           fetchedAt: snapshot.fetchedAt,
-          status: "VERIFIED" as const,
+          status: util ? ("VERIFIED" as const) : ("NO_USABLE_CONTENT" as const),
           excerpt: snapshot.normalizedText.slice(0, 2_500),
+          usableChars: snapshot.normalizedText.trim().length,
         };
       } catch (error) {
         return {
@@ -110,11 +126,17 @@ export async function POST(request: Request) {
   );
 
   const verified = consulted.filter((entry) => entry.status === "VERIFIED");
+  // Primero la sede que trae contenido de verdad; después las que solo responden.
+  const ordenadas = [
+    ...verified,
+    ...consulted.filter((entry) => entry.status === "NO_USABLE_CONTENT"),
+    ...consulted.filter((entry) => entry.status === "UNAVAILABLE"),
+  ];
 
   return NextResponse.json({
     question: parsed.data.question,
     consultedAt: new Date().toISOString(),
-    sources: consulted,
+    sources: ordenadas,
     // Referencias en el formato que ya usa el expediente.
     references: searchOfficialSourceCatalog(parsed.data.question)
       .slice(0, 2)
