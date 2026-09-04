@@ -4,6 +4,15 @@
   "functions": {
     "src/app/api/**/*.ts": {
       "maxDuration": 20
+    },
+    "src/app/api/internal/cron/**/*.ts": {
+      "maxDuration": 60
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/internal/cron/deadline-reminders",
+      "schedule": "0 7 * * *"
+    }
+  ]
 }
