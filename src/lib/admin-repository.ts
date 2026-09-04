@@ -330,3 +330,191 @@ export async function touchLastSeen(email: string) {
   const sql = db();
   await sql`update users set last_seen_at = now() where lower(email) = lower(${email})`;
 }
+
+/* ───────────────────────────── Un expediente entero ────────────────────── */
+
+export type ProjectDossier = {
+  project: {
+    id: string;
+    name: string;
+    businessDescription: string;
+    legalForm: string | null;
+    caseStage: string;
+    createdAt: string;
+    updatedAt: string;
+    workspaceId: string;
+    workspaceName: string;
+    ownerEmail: string;
+  };
+  profile: Record<string, unknown>;
+  tasks: Array<{ code: string; title: string; status: string; authority: string | null; evidence: string | null }>;
+  documents: Array<{
+    id: string;
+    displayName: string;
+    category: string;
+    mimeType: string;
+    sizeBytes: number;
+    reviewStatus: string;
+    createdAt: string;
+  }>;
+  events: Array<{ eventType: string; occurredAt: string; payload: Record<string, unknown> }>;
+  contacts: Array<{ channel: string; maskedValue: string; verified: boolean }>;
+};
+
+/**
+ * Todo lo que el expediente sabe de una empresa en construcción, para poder
+ * mirarlo desde el control sin entrar en la cuenta de nadie.
+ *
+ * De los documentos se leen los metadatos: nombre, tipo, tamaño y estado. El
+ * contenido NO se descifra aquí. Poder auditar el expediente no es lo mismo que
+ * poder leer el DNI de una persona, y esa distinción se mantiene en el código.
+ */
+export async function readProjectDossier(projectId: string): Promise<ProjectDossier | null> {
+  const sql = db();
+  const [project] = await sql<
+    Array<{
+      id: string;
+      name: string;
+      business_description: string;
+      preferred_legal_form: string | null;
+      case_stage: string;
+      created_at: Date;
+      updated_at: Date;
+      workspace_id: string;
+      workspace_name: string;
+      owner_email: string;
+    }>
+  >`
+    select p.id, p.name, p.business_description, p.preferred_legal_form, p.case_stage,
+           p.created_at, p.updated_at, p.workspace_id,
+           w.name as workspace_name, u.email as owner_email
+    from business_projects p
+    join workspaces w on w.id = p.workspace_id
+    join users u on u.id = p.created_by
+    where p.id = ${projectId}
+    limit 1
+  `;
+  if (!project) return null;
+
+  const [locations, founders, tasks, documents, events, contacts] = await Promise.all([
+    sql<Array<{ location_type: string; municipality: string | null }>>`
+      select location_type, municipality from business_locations where project_id = ${projectId}
+    `,
+    sql<Array<{ id: string }>>`select id from founders where project_id = ${projectId}`,
+    sql<Array<{ code: string; title: string; status: string; authority: string | null; evidence: string | null }>>`
+      select code, title, status, authority, evidence from tasks
+      where project_id = ${projectId} order by priority asc
+    `,
+    sql<
+      Array<{
+        id: string;
+        display_name: string;
+        category: string;
+        mime_type: string;
+        size_bytes: string | number;
+        review_status: string;
+        created_at: Date;
+      }>
+    >`
+      select id, display_name, category, mime_type, size_bytes, review_status, created_at
+      from documents where project_id = ${projectId} order by created_at desc
+    `,
+    sql<Array<{ event_type: string; occurred_at: Date; payload: Record<string, unknown> }>>`
+      select event_type, occurred_at, payload from case_events
+      where project_id = ${projectId} order by occurred_at desc limit 30
+    `,
+    sql<Array<{ type: string; normalized_value: string; verified: boolean; verified_at: Date | null }>>`
+      select c.type, c.normalized_value, c.verified, c.verified_at
+      from user_contact_methods c
+      join business_projects p on p.created_by = c.user_id
+      where p.id = ${projectId}
+    `,
+  ]);
+
+  const actividad = locations.find((l) => l.location_type === "ACTIVITY_ADDRESS");
+  return {
+    project: {
+      id: project.id,
+      name: project.name,
+      businessDescription: project.business_description,
+      legalForm: project.preferred_legal_form,
+      caseStage: project.case_stage,
+      createdAt: project.created_at.toISOString(),
+      updatedAt: project.updated_at.toISOString(),
+      workspaceId: project.workspace_id,
+      workspaceName: project.workspace_name,
+      ownerEmail: project.owner_email,
+    },
+    profile: {
+      business_description: project.business_description,
+      preferred_legal_form: project.preferred_legal_form,
+      number_of_founders: founders.length || null,
+      municipality: actividad?.municipality ?? null,
+      physical_premises: locations.some((l) => l.location_type === "ACTIVITY_ADDRESS"),
+    },
+    tasks,
+    documents: documents.map((d) => ({
+      id: d.id,
+      displayName: d.display_name,
+      category: d.category,
+      mimeType: d.mime_type,
+      sizeBytes: Number(d.size_bytes),
+      reviewStatus: d.review_status,
+      createdAt: d.created_at.toISOString(),
+    })),
+    events: events.map((e) => ({
+      eventType: e.event_type,
+      occurredAt: e.occurred_at.toISOString(),
+      payload: e.payload,
+    })),
+    // El contacto se muestra enmascarado: para auditar basta saber que existe.
+    contacts: contacts.map((c) => ({
+      channel: c.type,
+      maskedValue:
+        c.type === "WHATSAPP" || c.type === "SMS" || c.type === "PHONE"
+          ? `••• ••• ${String(c.normalized_value).replace(/\D/g, "").slice(-3)}`
+          : String(c.normalized_value).replace(/^(.).*(@.*)$/, "$1•••$2"),
+      verified: c.verified === true || c.verified_at !== null,
+    })),
+  };
+}
+
+/**
+ * Borra un expediente entero. Es irreversible y arrastra por clave ajena sus
+ * documentos, trámites, eventos y el contenido cifrado: por eso exige escribir
+ * el nombre del expediente, y queda registrado quién lo hizo y qué había.
+ */
+export async function deleteProject(input: {
+  projectId: string;
+  confirmationName: string;
+  actorEmail: string;
+}) {
+  const sql = db();
+  const [before] = await sql<Array<{ name: string; workspace_id: string; case_stage: string }>>`
+    select name, workspace_id, case_stage from business_projects where id = ${input.projectId}
+  `;
+  if (!before) throw new Error("PROJECT_NOT_FOUND");
+  if (before.name.trim() !== input.confirmationName.trim()) throw new Error("CONFIRMATION_MISMATCH");
+
+  const [counts] = await sql<Array<{ documents: string; tasks: string }>>`
+    select
+      (select count(*)::text from documents where project_id = ${input.projectId}) as documents,
+      (select count(*)::text from tasks where project_id = ${input.projectId}) as tasks
+  `;
+
+  await sql`delete from business_projects where id = ${input.projectId}`;
+  await recordAdminAction({
+    actorEmail: input.actorEmail,
+    action: "PROJECT_DELETED",
+    entityType: "project",
+    entityId: input.projectId,
+    before: {
+      name: before.name,
+      caseStage: before.case_stage,
+      workspaceId: before.workspace_id,
+      documents: Number(counts?.documents ?? 0),
+      tasks: Number(counts?.tasks ?? 0),
+    },
+  });
+  return { name: before.name, documents: Number(counts?.documents ?? 0) };
+}

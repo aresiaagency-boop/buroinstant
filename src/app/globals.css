@@ -2915,3 +2915,189 @@ a {
 }
 
 .itinerary-row__meta a:hover { text-decoration: underline; }
+
+.link-card__steps {
+  margin: 0 0 0.6rem;
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.6;
+}
+
+.link-card__steps strong {
+  color: var(--gold-antique);
+  font-weight: 500;
+}
+
+.link-card__warn {
+  margin: 0 0 0.6rem;
+  color: #6d6e6c;
+  font-size: 0.68rem;
+  line-height: 1.55;
+}
+
+a.gold-button {
+  display: inline-block;
+  text-decoration: none;
+}
+
+/* ── Superadministración: mapa de control y ficha de expediente ──────── */
+
+.admin-access {
+  margin: 0.6rem 0 0;
+  padding: 0.6rem 0.8rem;
+  border-left: 2px solid var(--gold-antique);
+  background: rgba(219, 184, 109, 0.05);
+  color: #797a79;
+  font-size: 0.72rem;
+  line-height: 1.6;
+}
+
+.admin-map {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 0.7rem;
+  margin: 1.4rem 0 2rem;
+}
+
+.admin-map__card {
+  display: block;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--line);
+  background: rgba(9, 12, 17, 0.55);
+  text-decoration: none;
+  transition: border-color 0.18s ease;
+}
+
+.admin-map__card:hover { border-color: var(--gold-antique); }
+
+.admin-map__card strong {
+  display: block;
+  margin-bottom: 0.35rem;
+  color: var(--gold-white);
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.admin-map__card p {
+  margin: 0 0 0.45rem;
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.55;
+}
+
+.admin-map__card small {
+  display: block;
+  color: #6d6e6c;
+  font-size: 0.66rem;
+  line-height: 1.5;
+}
+
+.admin-section-title {
+  margin: 0 0 0.3rem;
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 500;
+}
+
+.cell-link { color: var(--gold-white); text-decoration: none; }
+.cell-link:hover { color: var(--gold-antique); text-decoration: underline; }
+
+.dossier-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.7rem;
+  margin: 0;
+}
+
+.dossier-grid dt {
+  color: #797a79;
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dossier-grid dd {
+  margin: 0.2rem 0 0;
+  color: var(--gold-white);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.dossier-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.dossier-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.dossier-list--trace li { font-size: 0.7rem; }
+.dossier-list--trace .mono { color: #6d6e6c; }
+
+.admin-block--danger {
+  border: 1px solid rgba(164, 85, 63, 0.4);
+  padding: 1rem 1.15rem 1.2rem;
+  background: rgba(164, 85, 63, 0.05);
+}
+
+.admin-block--danger p {
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.6;
+}
+
+.admin-block--danger label {
+  display: block;
+  margin: 0.6rem 0 0.35rem;
+  color: #797a79;
+  font-size: 0.72rem;
+}
+
+.admin-block--danger code {
+  color: var(--gold-antique);
+  font-family: var(--font-mono);
+}
+
+.admin-block--danger input {
+  width: 100%;
+  max-width: 28rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--gold-white);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
+.danger-button {
+  margin-top: 0.7rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid rgba(164, 85, 63, 0.6);
+  background: rgba(164, 85, 63, 0.12);
+  color: #d08e78;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.danger-button:disabled { opacity: 0.4; cursor: not-allowed; }
+.danger-button:not(:disabled):hover { background: rgba(164, 85, 63, 0.22); }
+
+.admin-notice {
+  margin: 0.6rem 0 0;
+  color: var(--gold-antique);
+  font-size: 0.72rem;
+}

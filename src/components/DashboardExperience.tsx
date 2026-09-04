@@ -290,7 +290,14 @@ export function DashboardExperience({
   ]);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [proposals, setProposals] = useState<Array<{ field: string; value: unknown; channel: string }>>([]);
-  const [linkState, setLinkState] = useState<{ status: string; code?: string; maskedPhone?: string; instructions?: string } | null>(null);
+  const [linkState, setLinkState] = useState<{
+    status: string;
+    code?: string;
+    maskedPhone?: string;
+    instructions?: string;
+    businessNumberLabel?: string | null;
+    waLink?: string | null;
+  } | null>(null);
   const [persistence, setPersistence] = useState<"LOCAL" | "SAVING" | "SAVED" | "FAILED">("LOCAL");
   const [section, setSection] = useState("orbe");
   const [answering, setAnswering] = useState<CaseField | null>(null);
@@ -1145,20 +1152,53 @@ export function DashboardExperience({
                   <span>{linkState?.status === "LINKED" ? "vinculado" : "sin vincular"}</span>
                 </div>
                 {linkState?.status === "LINKED" ? (
-                  <p className="link-card__ok">
-                    {linkState.maskedPhone} escribe en este expediente. Lo que cuentes
-                    por WhatsApp aparece aquí.
-                  </p>
+                  <>
+                    <p className="link-card__ok">
+                      <strong>{linkState.maskedPhone}</strong> ya escribe en este
+                      expediente.
+                    </p>
+                    <p className="link-card__steps">
+                      Desde ese teléfono puedes escribir o mandar un audio a
+                      {linkState.businessNumberLabel ? ` ${linkState.businessNumberLabel}` : " BUROINSTANT"}{" "}
+                      y lo que cuentes entra aquí. Los datos claros se guardan solos;
+                      los que comprometen algo —forma jurídica, socios, municipio—
+                      te esperan arriba para que los confirmes.
+                    </p>
+                  </>
                 ) : linkState?.status === "PENDING" ? (
                   <>
                     <p className="link-card__code">{linkState.code}</p>
                     <p className="link-card__steps">{linkState.instructions}</p>
+                    {linkState.waLink ? (
+                      <a
+                        className="gold-button gold-button--small"
+                        href={linkState.waLink}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Abrir WhatsApp con el mensaje escrito <span aria-hidden="true">↗</span>
+                      </a>
+                    ) : (
+                      <p className="link-card__warn">
+                        Falta configurar el número de WhatsApp de BUROINSTANT en el
+                        servidor. Sin él no puedo decirte a dónde enviar el código.
+                      </p>
+                    )}
                   </>
                 ) : (
                   <>
                     <p className="link-card__steps">
-                      Vincula tu teléfono y podrás dictar por WhatsApp lo que quieras
-                      que entre en este expediente.
+                      <strong>Para qué sirve:</strong> para no depender de estar
+                      delante del ordenador. Vinculas tu móvil una vez y a partir de
+                      ahí avanzas el expediente hablando o escribiendo por WhatsApp
+                      {linkState?.businessNumberLabel ? ` a ${linkState.businessNumberLabel}` : ""}.
+                    </p>
+                    <p className="link-card__steps">
+                      <strong>Cómo funciona:</strong> te doy un código de seis
+                      caracteres y lo envías tú desde el teléfono que quieras
+                      vincular. Que el mensaje llegue desde ese número es la prueba
+                      de que es tuyo; por eso no te pido que lo teclees en un
+                      formulario, donde cualquiera podría poner el de otro.
                     </p>
                     <button type="button" className="gold-button gold-button--small" onClick={() => void requestLinkCode()}>
                       Pedir código <span aria-hidden="true">↗</span>

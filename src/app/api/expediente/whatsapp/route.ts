@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentActor } from "@/lib/auth";
 import { isDatabaseConfigured, redactDatabaseError } from "@/lib/db";
 import { issueLinkCode, readLinkState } from "@/lib/whatsapp-link-repository";
-import { LINK_PREFIX, linkInstructions } from "@/lib/whatsapp-link";
+import { LINK_PREFIX, businessNumber, formatBusinessNumber, linkInstructions, waLink } from "@/lib/whatsapp-link";
 
 /**
  * Vincular el WhatsApp con el expediente.
@@ -22,10 +22,15 @@ export async function GET() {
   }
   try {
     const state = await readLinkState(actor);
+    const numero = businessNumber();
     return NextResponse.json({
       ...state,
       prefix: LINK_PREFIX,
-      instructions: state.status === "PENDING" ? linkInstructions(state.code) : null,
+      // El destino: sin el numero, la instruccion no se puede seguir.
+      businessNumber: numero,
+      businessNumberLabel: numero ? formatBusinessNumber(numero) : null,
+      waLink: numero && state.status === "PENDING" ? waLink(numero, state.code) : null,
+      instructions: state.status === "PENDING" ? linkInstructions(state.code, numero) : null,
     });
   } catch (error) {
     return NextResponse.json(redactDatabaseError(error), { status: 500 });
@@ -49,11 +54,15 @@ export async function POST() {
   }
   try {
     const issued = await issueLinkCode(actor);
+    const numero = businessNumber();
     return NextResponse.json({
       status: "PENDING",
       ...issued,
       prefix: LINK_PREFIX,
-      instructions: linkInstructions(issued.code),
+      businessNumber: numero,
+      businessNumberLabel: numero ? formatBusinessNumber(numero) : null,
+      waLink: numero ? waLink(numero, issued.code) : null,
+      instructions: linkInstructions(issued.code, numero),
     });
   } catch (error) {
     return NextResponse.json(redactDatabaseError(error), { status: 500 });

@@ -51,6 +51,44 @@ export function maskPhone(phone: string): string {
   return `••• ••• ${digitos.slice(-3)}`;
 }
 
-export function linkInstructions(code: string): string {
-  return `Envía ${LINK_PREFIX} ${code} por WhatsApp desde el teléfono que quieras vincular. El código caduca en ${LINK_CODE_TTL_MINUTES} minutos.`;
+/**
+ * El número de WhatsApp de BUROINSTANT: el destino al que hay que escribir.
+ *
+ * No es un secreto —es el número público del servicio— pero tampoco se pone
+ * como `NEXT_PUBLIC_`: viaja del servidor al panel como un dato más de la
+ * configuración, para que no haya dos sitios donde cambiarlo.
+ *
+ * Devuelve null si no está configurado. Sin número, la instrucción «envía el
+ * código por WhatsApp» no se puede seguir, y decirlo es mejor que fingir.
+ */
+export function businessNumber(env: Record<string, string | undefined> = process.env): string | null {
+  const crudo = env.BUROINSTANT_WHATSAPP_NUMBER;
+  if (!crudo) return null;
+  const digitos = String(crudo).replace(/\D/g, "");
+  // Un número internacional razonable: prefijo de país más el resto.
+  if (digitos.length < 8 || digitos.length > 15) return null;
+  return digitos;
+}
+
+/** +34 600 123 456, para leerlo de un vistazo. */
+export function formatBusinessNumber(digits: string): string {
+  const resto = digits.length > 9 ? digits.slice(-9) : digits;
+  const prefijo = digits.slice(0, digits.length - resto.length);
+  const grupos = resto.replace(/(\d{3})(?=\d)/g, "$1 ");
+  return prefijo ? `+${prefijo} ${grupos}` : grupos;
+}
+
+/**
+ * Enlace que abre WhatsApp con el mensaje ya escrito. Quita el paso de copiar
+ * el código a mano, que es donde la gente se equivoca de dígito.
+ */
+export function waLink(digits: string, code: string): string {
+  return `https://wa.me/${digits}?text=${encodeURIComponent(`${LINK_PREFIX} ${code}`)}`;
+}
+
+export function linkInstructions(code: string, digits?: string | null): string {
+  if (!digits) {
+    return `Escribe ${LINK_PREFIX} ${code} por WhatsApp desde el teléfono que quieras vincular. El código caduca en ${LINK_CODE_TTL_MINUTES} minutos. Falta configurar el número de BUROINSTANT al que enviarlo.`;
+  }
+  return `Escribe ${LINK_PREFIX} ${code} al ${formatBusinessNumber(digits)} por WhatsApp, desde el teléfono que quieras vincular. El código caduca en ${LINK_CODE_TTL_MINUTES} minutos.`;
 }

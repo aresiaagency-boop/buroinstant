@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   LINK_CODE_LENGTH,
+  businessNumber,
+  formatBusinessNumber,
   generateLinkCode,
   linkInstructions,
   maskPhone,
   parseLinkCode,
+  waLink,
 } from "@/lib/whatsapp-link";
 
 describe("código de vinculación", () => {
@@ -73,5 +76,43 @@ describe("presentación", () => {
     expect(texto).toContain("ABC234");
     expect(texto).toContain("VINCULAR");
     expect(texto).toContain("15 minutos");
+  });
+});
+
+describe("a qué número se envía el código", () => {
+  it("lee el número del entorno y lo deja en dígitos", () => {
+    expect(businessNumber({ BUROINSTANT_WHATSAPP_NUMBER: "+34 600 123 456" })).toBe("34600123456");
+  });
+
+  it("sin número configurado devuelve null en vez de inventarlo", () => {
+    expect(businessNumber({})).toBeNull();
+    expect(businessNumber({ BUROINSTANT_WHATSAPP_NUMBER: "" })).toBeNull();
+  });
+
+  it("rechaza lo que no puede ser un número de teléfono", () => {
+    expect(businessNumber({ BUROINSTANT_WHATSAPP_NUMBER: "123" })).toBeNull();
+    expect(businessNumber({ BUROINSTANT_WHATSAPP_NUMBER: "1".repeat(20) })).toBeNull();
+    expect(businessNumber({ BUROINSTANT_WHATSAPP_NUMBER: "pon-aqui-el-numero" })).toBeNull();
+  });
+
+  it("se muestra legible", () => {
+    expect(formatBusinessNumber("34600123456")).toBe("+34 600 123 456");
+  });
+
+  it("el enlace abre WhatsApp con el mensaje ya escrito", () => {
+    const enlace = waLink("34600123456", "ABC234");
+    expect(enlace).toBe("https://wa.me/34600123456?text=VINCULAR%20ABC234");
+  });
+
+  it("la instrucción dice el destino cuando lo hay", () => {
+    const texto = linkInstructions("ABC234", "34600123456");
+    expect(texto).toContain("ABC234");
+    expect(texto).toContain("+34 600 123 456");
+    expect(texto).toContain("15 minutos");
+  });
+
+  it("y dice que falta el destino cuando no lo hay, en vez de callarlo", () => {
+    const texto = linkInstructions("ABC234", null);
+    expect(texto).toContain("Falta configurar el número");
   });
 });

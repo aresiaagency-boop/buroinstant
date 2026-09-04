@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { isDatabaseConfigured } from "@/lib/db";
 import { listProjectsOverview } from "@/lib/admin-repository";
 
@@ -35,7 +36,8 @@ export default async function AdminProjectsPage() {
         <h1>Expedientes</h1>
         <p className="admin-lede">
           El mapa real del negocio: en qué fase está cada empresa en construcción y cuántas
-          confirmaciones esperan a su titular.
+          confirmaciones esperan a su titular. Pulsa un nombre para abrir el expediente entero:
+          datos, itinerario, documentos y traza, con la opción de borrarlo.
         </p>
       </header>
       <div className="admin-scroller">
@@ -46,7 +48,12 @@ export default async function AdminProjectsPage() {
           <tbody>
             {projects.map((project) => (
               <tr key={project.id}>
-                <td><strong>{project.name}</strong><small className="cell-sub">{project.owner_email ?? "—"}</small></td>
+                <td>
+                  <Link href={`/admin/expedientes/${project.id}`} className="cell-link">
+                    <strong>{project.name}</strong>
+                  </Link>
+                  <small className="cell-sub">{project.owner_email ?? "—"}</small>
+                </td>
                 <td>{project.workspace_name}</td>
                 <td><span className="tag">{STAGE_LABEL[project.case_stage] ?? project.case_stage}</span></td>
                 <td className="mono">{REVIEW_LABEL[project.review_state ?? ""] ?? "—"}</td>
