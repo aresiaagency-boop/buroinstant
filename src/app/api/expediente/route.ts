@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentActor } from "@/lib/auth";
 import { isDatabaseConfigured, redactDatabaseError } from "@/lib/db";
-import { readLatestProject, saveProjectProfile } from "@/lib/project-profile";
+import { readLatestProject, readPendingProposals, saveProjectProfile } from "@/lib/project-profile";
 import { ProjectAccessError } from "@/lib/task-repository";
 
 /**
@@ -44,7 +44,9 @@ export async function GET() {
     return NextResponse.json({ error: "DATABASE_NOT_CONFIGURED", project: null }, { status: 503 });
   }
   try {
-    return NextResponse.json({ project: await readLatestProject(actor) });
+    const project = await readLatestProject(actor);
+    const proposals = project ? await readPendingProposals(project.id, project.profile) : [];
+    return NextResponse.json({ project, proposals });
   } catch (error) {
     return NextResponse.json(redactDatabaseError(error), { status: 500 });
   }

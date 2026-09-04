@@ -7,6 +7,9 @@ import { inboundMessageSchema, whatsappWebhookSchema } from "@/lib/schemas";
 import { verifyMachineBearer, verifyWebhookSignature } from "@/lib/security/hmac";
 import { checkEphemeralRateLimit } from "@/lib/security/rate-limit";
 import { normalizeWhatsAppPhone } from "@/lib/whatsapp";
+import { parseLinkCode } from "@/lib/whatsapp-link";
+import { consumeLinkCode } from "@/lib/whatsapp-link-repository";
+import { applyProfilePatch, type ProfilePatch } from "@/lib/project-profile";
 
 const service = new BusinessDataIngestionService();
 
@@ -73,6 +76,32 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "DUPLICATE_EVENT" }, { status: 200 });
   }
 
+  // Antes que nada: ¿es el código de vinculación? Un número sin expediente que
+  // manda un código válido pasa a tenerlo, y ese mismo mensaje ya no es una
+  // consulta que haya que interpretar.
+  const linkCode = parseLinkCode(parsed.data.text);
+  if (linkCode) {
+    const linked = await consumeLinkCode(linkCode, phone).catch(() => null);
+    await sql`
+      update webhook_events set status = 'PROCESSED', processed_at = now()
+      where id = ${inserted[0].id}
+    `;
+    return NextResponse.json(
+      linked
+        ? {
+            status: "LINKED",
+            replyText:
+              "Listo, este número ya está vinculado con tu expediente de BUROINSTANT. Cuéntame qué empresa quieres crear.",
+          }
+        : {
+            status: "LINK_CODE_INVALID",
+            replyText:
+              "Ese código no vale: o ha caducado o ya se usó. Pide uno nuevo desde tu expediente en la web.",
+          },
+      { status: linked ? 200 : 409 },
+    );
+  }
+
   const identity = await resolveWhatsAppIdentity(phone);
   if (!identity) {
     await sql`
@@ -83,7 +112,7 @@ export async function POST(request: Request) {
       {
         status: "LINK_REQUIRED",
         replyText:
-          "He recibido tu mensaje. Para asociarlo con tu expediente necesito vincular este número con tu cuenta BUROINSTANT.",
+          "He recibido tu mensaje, pero este número todavía no está vinculado a ningún expediente. Entra en https://buroinstant.vercel.app, pide el código de vinculación y envíamelo por aquí.",
       },
       { status: 202 },
     );
@@ -125,6 +154,27 @@ export async function POST(request: Request) {
       where id = ${inserted[0].id}
     `;
   });
+
+  // Lo que no compromete nada se incorpora al expediente sin más trámite. Todo
+  // lo demás queda registrado como propuesta: un dato con consecuencia legal no
+  // entra en un expediente porque alguien lo haya dicho de pasada por WhatsApp.
+  if (identity.project_id) {
+    const aplicables: ProfilePatch = {};
+    for (const field of result.extractedFields) {
+      if (field.requiresConfirmation) continue;
+      if (field.field === "business_description" && typeof field.value === "string") {
+        aplicables.business_description = field.value;
+      }
+    }
+    if (Object.keys(aplicables).length > 0) {
+      await applyProfilePatch({
+        userId: identity.user_id,
+        workspaceId: identity.workspace_id,
+        projectId: identity.project_id,
+        patch: aplicables,
+      }).catch(() => undefined);
+    }
+  }
 
   return NextResponse.json({
     status: result.requiresConfirmation ? "NEEDS_CONFIRMATION" : "APPLIED",

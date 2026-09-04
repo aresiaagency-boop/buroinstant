@@ -153,6 +153,8 @@ export function DashboardExperience({
     },
   ]);
   const [projectId, setProjectId] = useState<string | null>(null);
+  const [proposals, setProposals] = useState<Array<{ field: string; value: unknown; channel: string }>>([]);
+  const [linkState, setLinkState] = useState<{ status: string; code?: string; maskedPhone?: string; instructions?: string } | null>(null);
   const [persistence, setPersistence] = useState<"LOCAL" | "SAVING" | "SAVED" | "FAILED">("LOCAL");
   const [section, setSection] = useState("orbe");
   const [answering, setAnswering] = useState<CaseField | null>(null);
@@ -185,8 +187,11 @@ export function DashboardExperience({
         if (!response.ok) return;
         const payload = (await response.json()) as {
           project?: { id: string; profile: Record<string, unknown> } | null;
+          proposals?: Array<{ field: string; value: unknown; channel: string }>;
         };
-        if (cancelado || !payload.project) return;
+        if (cancelado) return;
+        setProposals(payload.proposals ?? []);
+        if (!payload.project) return;
         const limpio = Object.fromEntries(
           Object.entries(payload.project.profile).filter(([, value]) => value !== undefined && value !== null),
         );
@@ -198,6 +203,12 @@ export function DashboardExperience({
         }
       } catch {
         // Recuperar el expediente no puede impedir usar el panel.
+      }
+      try {
+        const estado = await fetch("/api/expediente/whatsapp", { cache: "no-store" });
+        if (!cancelado && estado.ok) setLinkState(await estado.json());
+      } catch {
+        // El estado de vinculación no puede impedir usar el panel.
       }
     })();
     return () => {
@@ -300,6 +311,22 @@ export function DashboardExperience({
       document.getElementById("respuesta-dirigida")?.scrollIntoView({ behavior: "smooth", block: "center" });
       answerRef.current?.focus();
     }, 60);
+  }
+
+  async function requestLinkCode() {
+    setNotice("Pidiendo el código de vinculación…");
+    try {
+      const response = await fetch("/api/expediente/whatsapp", { method: "POST" });
+      const payload = await response.json();
+      if (!response.ok) {
+        setNotice(payload.message ?? "No he podido emitir el código.");
+        return;
+      }
+      setLinkState(payload);
+      setNotice("Envía el código por WhatsApp desde el teléfono que quieras vincular.");
+    } catch {
+      setNotice("Sin conexión. No he podido emitir el código.");
+    }
   }
 
   /** Guarda el dato en el expediente. En cuenta real, contra PostgreSQL. */
@@ -779,6 +806,73 @@ export function DashboardExperience({
                 guarda en ese dato, no en otro.
               </p>
             </section>
+
+            {proposals.length > 0 && (
+              <section className="proposals-card" aria-label="Propuestas pendientes de confirmar">
+                <div className="section-heading">
+                  <h2>Llegó por WhatsApp</h2>
+                  <span>{proposals.length} sin confirmar</span>
+                </div>
+                <p className="proposals-card__why">
+                  Estos datos tienen consecuencia legal, así que no entran en el
+                  expediente porque se hayan dicho de pasada en un mensaje.
+                </p>
+                <ul>
+                  {proposals.map((proposal) => {
+                    const field = caseFields.find((item) => item.key === proposal.field);
+                    return (
+                      <li key={proposal.field}>
+                        <div>
+                          <strong>{field?.label ?? proposal.field}</strong>
+                          <span>{displayValue(proposal.value)}</span>
+                        </div>
+                        <button
+                          type="button"
+                          className="gold-button gold-button--small"
+                          onClick={() => field && saveAnswer(field, proposal.value)}
+                        >
+                          Confirmar
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+                <p className="proposals-card__hint">
+                  Si no es correcto, responde ese dato desde el expediente y la
+                  propuesta desaparece.
+                </p>
+              </section>
+            )}
+
+            {actor.mode === "oauth" && configuration.database && (
+              <section className="link-card" aria-label="WhatsApp del expediente">
+                <div className="section-heading">
+                  <h2>WhatsApp</h2>
+                  <span>{linkState?.status === "LINKED" ? "vinculado" : "sin vincular"}</span>
+                </div>
+                {linkState?.status === "LINKED" ? (
+                  <p className="link-card__ok">
+                    {linkState.maskedPhone} escribe en este expediente. Lo que cuentes
+                    por WhatsApp aparece aquí.
+                  </p>
+                ) : linkState?.status === "PENDING" ? (
+                  <>
+                    <p className="link-card__code">{linkState.code}</p>
+                    <p className="link-card__steps">{linkState.instructions}</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="link-card__steps">
+                      Vincula tu teléfono y podrás dictar por WhatsApp lo que quieras
+                      que entre en este expediente.
+                    </p>
+                    <button type="button" className="gold-button gold-button--small" onClick={() => void requestLinkCode()}>
+                      Pedir código <span aria-hidden="true">↗</span>
+                    </button>
+                  </>
+                )}
+              </section>
+            )}
 
             <section className="activity-card" id="actividad">
               <div className="section-heading">

@@ -52,6 +52,11 @@ export async function readProjectSnapshot(
   projectId: string,
 ): Promise<ProjectSnapshot> {
   await assertProjectAccess(actor, projectId);
+  return readSnapshotById(projectId);
+}
+
+/** Lectura sin comprobar acceso: quien la llama ya lo ha comprobado. */
+export async function readSnapshotById(projectId: string): Promise<ProjectSnapshot> {
   const sql = db();
 
   const [project] = await sql<
@@ -122,12 +127,33 @@ export async function saveProjectProfile(input: {
   patch: ProfilePatch;
 }): Promise<ProjectSnapshot> {
   const { userId, workspaceId } = await ensureActorWorkspace(input.actor);
+  if (input.projectId) await assertProjectAccess(input.actor, input.projectId);
+  return applyProfilePatch({
+    userId,
+    workspaceId,
+    projectId: input.projectId,
+    patch: input.patch,
+  });
+}
+
+/**
+ * Aplica el cambio con una identidad ya resuelta.
+ *
+ * La ingesta de WhatsApp llega con el usuario y el workspace que le devolvió la
+ * búsqueda del teléfono: no puede pasar por `ensureActorWorkspace`, que crearía
+ * un usuario a partir de datos que no tiene.
+ */
+export async function applyProfilePatch(input: {
+  userId: string;
+  workspaceId: string;
+  projectId?: string;
+  patch: ProfilePatch;
+}): Promise<ProjectSnapshot> {
+  const { userId, workspaceId } = input;
   const sql = db();
 
   let projectId = input.projectId;
-  if (projectId) {
-    await assertProjectAccess(input.actor, projectId);
-  } else {
+  if (!projectId) {
     const descripcion = input.patch.business_description?.trim();
     const [created] = await sql<Array<{ id: string }>>`
       insert into business_projects (workspace_id, name, business_description, case_stage, created_by)
@@ -219,5 +245,61 @@ export async function saveProjectProfile(input: {
   `;
   await sql`update business_projects set updated_at = now() where id = ${projectId}`;
 
-  return readProjectSnapshot(input.actor, projectId);
+  return readSnapshotById(projectId);
+}
+
+
+export type Proposal = {
+  field: ProfileKey;
+  value: unknown;
+  risk: string;
+  channel: string;
+  receivedAt: string;
+};
+
+/**
+ * Lo que llegó por WhatsApp y espera tu confirmación.
+ *
+ * Un dato con consecuencia legal no entra en el expediente porque alguien lo
+ * haya dicho de pasada en un mensaje. Queda aquí hasta que la persona lo
+ * confirme desde el panel.
+ *
+ * Una propuesta desaparece sola cuando el campo ya tiene ese mismo valor: no
+ * hace falta descartarla a mano si respondes otra cosa.
+ */
+export async function readPendingProposals(
+  projectId: string,
+  profile: Partial<Record<ProfileKey, unknown>>,
+): Promise<Proposal[]> {
+  const sql = db();
+  const rows = await sql<Array<{ extracted_data: unknown; channel: string; created_at: Date }>>`
+    select extracted_data, channel, created_at
+    from data_ingestion_events
+    where project_id = ${projectId} and status = 'NEEDS_CONFIRMATION'
+    order by created_at desc
+    limit 12
+  `;
+
+  const vistos = new Set<string>();
+  const propuestas: Proposal[] = [];
+  for (const row of rows) {
+    const campos = Array.isArray(row.extracted_data) ? row.extracted_data : [];
+    for (const campo of campos as Array<Record<string, unknown>>) {
+      const field = String(campo.field ?? "") as ProfileKey;
+      if (!PROFILE_KEYS.includes(field)) continue;
+      if (campo.requiresConfirmation !== true) continue;
+      if (vistos.has(field)) continue;
+      // Ya respondido con ese mismo valor: la propuesta sobra.
+      if (JSON.stringify(profile[field]) === JSON.stringify(campo.value)) continue;
+      vistos.add(field);
+      propuestas.push({
+        field,
+        value: campo.value,
+        risk: String(campo.risk ?? "MEDIUM_RISK"),
+        channel: row.channel,
+        receivedAt: row.created_at.toISOString(),
+      });
+    }
+  }
+  return propuestas;
 }
