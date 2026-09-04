@@ -99,6 +99,44 @@ type CalendarPayload = {
   footer?: string;
 };
 
+/** El archivo de documentos, tal como lo sirve la ruta. */
+type VaultRequirement = {
+  category: string;
+  categoryLabel: string;
+  title: string;
+  why: string;
+  required: boolean;
+  satisfied: boolean;
+};
+
+type VaultDocument = {
+  id: string;
+  category: string;
+  categoryLabel: string;
+  displayName: string;
+  mimeType: string;
+  sizeBytes: number;
+  reviewStatus: string;
+  createdAt: string;
+};
+
+type VaultPayload = {
+  project: { id: string; name: string } | null;
+  encryptionReady?: boolean;
+  canUpload?: boolean;
+  maxBytes?: number;
+  requirements: VaultRequirement[];
+  documents: VaultDocument[];
+  message?: string;
+};
+
+/** 51200 → «50 KB». Sin decimales: aquí sólo importa el orden de magnitud. */
+function tamanoLegible(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 const RESPONSIBLE_LABEL: Record<string, string> = {
   AUTONOMO: "Tú, como autónomo",
   EMPRESA: "La empresa",
@@ -228,6 +266,11 @@ export function DashboardExperience({
   const [classifying, setClassifying] = useState(false);
   const [calendar, setCalendar] = useState<CalendarPayload | null>(null);
   const [loadingCalendar, setLoadingCalendar] = useState(false);
+  const [vault, setVault] = useState<VaultPayload | null>(null);
+  const [loadingVault, setLoadingVault] = useState(false);
+  const [uploadingCategory, setUploadingCategory] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const pendingCategoryRef = useRef<string>("OTHER");
   const [sourceState, setSourceState] = useState<{
     status: "IDLE" | "CHECKING" | "VERIFIED" | "UNAVAILABLE";
     checkedAt: string | null;
@@ -408,6 +451,66 @@ export function DashboardExperience({
       setNotice("Sin conexión. No he podido construir el calendario.");
     } finally {
       setLoadingCalendar(false);
+    }
+  }
+
+  /** Lee el archivo: qué papeles pide el expediente y cuáles ya están. */
+  async function loadVault() {
+    if (actor.mode !== "oauth" || !configuration.database) {
+      setNotice("El archivo necesita una sesión real de Google y la base de datos configurada.");
+      return;
+    }
+    setLoadingVault(true);
+    try {
+      const response = await fetch("/api/expediente/documentos", { cache: "no-store" });
+      if (!response.ok) {
+        setNotice("No he podido leer el archivo de documentos.");
+        return;
+      }
+      const payload = (await response.json()) as VaultPayload;
+      setVault(payload);
+      const faltan = payload.requirements.filter((r) => !r.satisfied).length;
+      setNotice(
+        payload.requirements.length === 0
+          ? (payload.message ?? "Todavía no sé qué papeles pedirte.")
+          : faltan === 0
+            ? "Tienes en el archivo todo lo que el expediente pide ahora mismo."
+            : `Te faltan ${faltan} documentos por aportar.`,
+      );
+    } catch {
+      setNotice("Sin conexión. No he podido leer el archivo.");
+    } finally {
+      setLoadingVault(false);
+    }
+  }
+
+  /** Abre el selector de archivos recordando a qué requisito responde. */
+  function pickDocument(category: string) {
+    pendingCategoryRef.current = category;
+    fileInputRef.current?.click();
+  }
+
+  async function uploadDocument(file: File) {
+    const category = pendingCategoryRef.current;
+    setUploadingCategory(category);
+    setNotice(`Cifrando y guardando ${file.name}…`);
+    try {
+      const cuerpo = new FormData();
+      cuerpo.append("file", file);
+      cuerpo.append("category", category);
+      const response = await fetch("/api/expediente/documentos", { method: "POST", body: cuerpo });
+      const payload = await response.json();
+      if (!response.ok) {
+        setNotice(payload.message ?? "No he podido guardar ese documento.");
+        return;
+      }
+      setNotice(payload.message ?? "Guardado.");
+      await loadVault();
+    } catch {
+      setNotice("Sin conexión. El documento no se ha guardado.");
+    } finally {
+      setUploadingCategory(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
 
@@ -673,6 +776,7 @@ export function DashboardExperience({
             { id: "tareas", icono: "✓", texto: "Paso" },
             { id: "actividad", icono: "◈", texto: "Actividad" },
             { id: "calendario", icono: "▤", texto: "Plazos" },
+            { id: "archivo", icono: "⛁", texto: "Archivo" },
             { id: "fuentes", icono: "§", texto: "AEAT" },
             { id: "trazabilidad", icono: "▱", texto: "Traza" },
           ].map((item) => (
@@ -1144,6 +1248,116 @@ export function DashboardExperience({
                 disabled={loadingCalendar}
               >
                 {loadingCalendar ? "Calculando…" : calendar ? "Volver a calcular" : "Calcular mis plazos"}{" "}
+                <span aria-hidden="true">↗</span>
+              </button>
+            </section>
+
+            <section className="vault-card" id="archivo">
+              <div className="section-heading">
+                <h2>Archivo de documentos</h2>
+                <span>
+                  {vault
+                    ? `${vault.requirements.filter((r) => r.satisfied).length}/${vault.requirements.length} aportados`
+                    : "sin abrir"}
+                </span>
+              </div>
+
+              {!vault && (
+                <div className="vault-card__intro">
+                  <p>
+                    El sitio donde vive el papeleo del expediente: DNI,
+                    denominación, estatutos, escritura, alta censal. Cada
+                    documento con el trámite al que responde.
+                  </p>
+                  <ul>
+                    <li><strong>Cómo</strong> — la lista sale de lo que ya has respondido: un autónomo no tiene que aportar estatutos ni escritura, una SL sí, y la licencia sólo se pide si has dicho que hay local.</li>
+                    <li><strong>Qué te devuelve</strong> — qué te falta, qué ya está, y la descarga de cada uno cuando la notaría o el banco te lo pidan.</li>
+                    <li><strong>Qué resuelve</strong> — llegar a la notaría con todo, y no volver a buscar la escritura en el correo dentro de dos años.</li>
+                  </ul>
+                  <p className="vault-card__warn">
+                    Cada archivo se cifra con una clave propia antes de tocar la
+                    base de datos. Quien lea la base de datos no obtiene ningún
+                    documento: la clave maestra no está ahí.
+                  </p>
+                </div>
+              )}
+
+              {vault && vault.encryptionReady === false && (
+                <p className="vault-card__warn">
+                  El cifrado no está configurado en el servidor, así que el
+                  archivo no acepta documentos. Antes que guardar un DNI en
+                  claro, prefiero no guardarlo.
+                </p>
+              )}
+
+              {vault && vault.requirements.length === 0 && (
+                <p className="vault-card__warn">{vault.message ?? "Todavía no sé qué papeles pedirte."}</p>
+              )}
+
+              {vault && vault.requirements.length > 0 && (
+                <ol className="vault-card__list">
+                  {vault.requirements.map((requisito) => {
+                    const aportados = vault.documents.filter((d) => d.category === requisito.category);
+                    return (
+                      <li
+                        key={requisito.category}
+                        className={`vault-row ${requisito.satisfied ? "vault-row--ok" : "vault-row--pending"}`}
+                      >
+                        <div className="vault-row__head">
+                          <strong>{requisito.title}</strong>
+                          <span>{requisito.satisfied ? "Aportado" : requisito.required ? "Falta" : "Opcional"}</span>
+                        </div>
+                        <p className="vault-row__why">{requisito.why}</p>
+
+                        {aportados.length > 0 && (
+                          <ul className="vault-row__files">
+                            {aportados.map((documento) => (
+                              <li key={documento.id}>
+                                <a href={`/api/expediente/documentos/${documento.id}`} download>
+                                  {documento.displayName} <span aria-hidden="true">↓</span>
+                                </a>
+                                <small>{tamanoLegible(documento.sizeBytes)}</small>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+
+                        <button
+                          type="button"
+                          className="text-button text-button--tiny"
+                          onClick={() => pickDocument(requisito.category)}
+                          disabled={vault.canUpload === false || vault.encryptionReady === false || uploadingCategory !== null}
+                        >
+                          {uploadingCategory === requisito.category
+                            ? "Cifrando…"
+                            : aportados.length > 0
+                              ? "Añadir otro"
+                              : "Subir documento"}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ol>
+              )}
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                hidden
+                accept=".pdf,.jpg,.jpeg,.png,.webp,.tif,.tiff,.docx,.xlsx"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) void uploadDocument(file);
+                }}
+              />
+
+              <button
+                type="button"
+                className="gold-button gold-button--small"
+                onClick={() => void loadVault()}
+                disabled={loadingVault}
+              >
+                {loadingVault ? "Abriendo…" : vault ? "Actualizar el archivo" : "Abrir mi archivo"}{" "}
                 <span aria-hidden="true">↗</span>
               </button>
             </section>

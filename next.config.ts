@@ -35,6 +35,18 @@ const nextConfig: NextConfig = {
           },
         ],
       },
+      {
+        // Un documento del archivo se entrega como descarga y no debe poder
+        // ejecutar nada. Va DESPUÉS de la regla general: cuando dos reglas
+        // coinciden, la última gana, y aquí hace falta la política cerrada.
+        source: "/api/expediente/documentos/:id",
+        headers: [
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "no-referrer" },
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "Content-Security-Policy", value: "default-src 'none'; sandbox" },
+        ],
+      },
     ];
   },
 };

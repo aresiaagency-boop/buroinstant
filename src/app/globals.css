@@ -2627,3 +2627,129 @@ a {
 .calendar-row__meta a:hover {
   text-decoration: underline;
 }
+
+/* ── Archivo de documentos ───────────────────────────────────────────── */
+
+.vault-card {
+  padding: 1.15rem 1.25rem 1.35rem;
+  border: 1px solid var(--line);
+  background: rgba(9, 12, 17, 0.55);
+  scroll-margin-top: 5rem;
+}
+
+.vault-card__intro p {
+  margin: 0 0 0.7rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.6;
+}
+
+.vault-card__intro ul {
+  margin: 0 0 0.8rem;
+  padding-left: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.vault-card__intro li {
+  padding-left: 0.85rem;
+  border-left: 1px solid var(--line);
+  color: #797a79;
+  font-size: 0.72rem;
+  line-height: 1.55;
+}
+
+.vault-card__intro strong {
+  color: var(--gold-antique);
+  font-weight: 500;
+}
+
+.vault-card__warn {
+  margin: 0 0 0.9rem;
+  color: #6d6e6c;
+  font-size: 0.68rem;
+  line-height: 1.6;
+}
+
+.vault-card__list {
+  margin: 0 0 1rem;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.55rem;
+  max-height: 30rem;
+  overflow-y: auto;
+}
+
+.vault-row {
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--line);
+  border-left-width: 2px;
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.vault-row--ok { border-left-color: #6f7a63; }
+.vault-row--pending { border-left-color: var(--gold-antique); }
+
+.vault-row__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.vault-row__head strong {
+  color: var(--gold-white);
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+.vault-row__head span {
+  flex-shrink: 0;
+  color: #797a79;
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.vault-row__why {
+  margin: 0.25rem 0 0.5rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.55;
+}
+
+.vault-row__files {
+  margin: 0 0 0.5rem;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.vault-row__files li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.vault-row__files a {
+  color: var(--gold-antique);
+  font-size: 0.74rem;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.vault-row__files a:hover {
+  text-decoration: underline;
+}
+
+.vault-row__files small {
+  flex-shrink: 0;
+  color: #6d6e6c;
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+}
