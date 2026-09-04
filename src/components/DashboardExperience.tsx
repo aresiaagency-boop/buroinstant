@@ -69,6 +69,71 @@ type CaseField = {
   options?: CaseFieldOption[];
 };
 
+/** Una fila del calendario de obligaciones, tal como la sirve la ruta. */
+type ObligationRow = {
+  code: string;
+  obligationCode: string;
+  model: string | null;
+  title: string;
+  detail: string;
+  authority: string;
+  periodicity: string;
+  responsible: string;
+  periodLabel: string;
+  dueDate: string | null;
+  windowRule: string;
+  sourceUrl: string;
+  sourceTitle: string;
+  pendingVerification?: string;
+  shiftNote?: string;
+  urgency: "SIN_FECHA" | "LEJANO" | "PROXIMO" | "INMINENTE" | "VENCIDO";
+};
+
+type CalendarPayload = {
+  project: { id: string; name: string } | null;
+  from?: string;
+  horizonDays?: number;
+  legalFormDecided?: boolean;
+  obligations: ObligationRow[];
+  message?: string;
+  footer?: string;
+};
+
+const RESPONSIBLE_LABEL: Record<string, string> = {
+  AUTONOMO: "Tú, como autónomo",
+  EMPRESA: "La empresa",
+  ADMINISTRADOR: "El administrador",
+};
+
+const URGENCY_LABEL: Record<string, string> = {
+  VENCIDO: "Ya vencido",
+  INMINENTE: "Esta semana",
+  PROXIMO: "Este mes",
+  LEJANO: "Más adelante",
+  SIN_FECHA: "Fecha por confirmar",
+};
+
+/** 2026-10-20 → «20 de octubre de 2026». Sin Date, para no depender del huso. */
+function fechaLarga(iso: string): string {
+  const meses = [
+    "enero",
+    "febrero",
+    "marzo",
+    "abril",
+    "mayo",
+    "junio",
+    "julio",
+    "agosto",
+    "septiembre",
+    "octubre",
+    "noviembre",
+    "diciembre",
+  ];
+  const [year, month, day] = iso.split("-").map(Number);
+  if (!year || !month || !day) return iso;
+  return `${day} de ${meses[month - 1]} de ${year}`;
+}
+
 const caseFields: CaseField[] = [
   {
     key: "business_description",
@@ -161,6 +226,8 @@ export function DashboardExperience({
   const [answerDraft, setAnswerDraft] = useState("");
   const [activity, setActivity] = useState<ActivityClassification | null>(null);
   const [classifying, setClassifying] = useState(false);
+  const [calendar, setCalendar] = useState<CalendarPayload | null>(null);
+  const [loadingCalendar, setLoadingCalendar] = useState(false);
   const [sourceState, setSourceState] = useState<{
     status: "IDLE" | "CHECKING" | "VERIFIED" | "UNAVAILABLE";
     checkedAt: string | null;
@@ -311,6 +378,37 @@ export function DashboardExperience({
       document.getElementById("respuesta-dirigida")?.scrollIntoView({ behavior: "smooth", block: "center" });
       answerRef.current?.focus();
     }, 60);
+  }
+
+  /**
+   * Trae el calendario de obligaciones del expediente. Es una lectura: no
+   * escribe nada, así que puede pedirse las veces que haga falta.
+   */
+  async function loadCalendar() {
+    if (actor.mode !== "oauth" || !configuration.database) {
+      setNotice("El calendario necesita una sesión real de Google y la base de datos configurada.");
+      return;
+    }
+    setLoadingCalendar(true);
+    try {
+      const response = await fetch("/api/expediente/obligaciones?dias=365", { cache: "no-store" });
+      if (!response.ok) {
+        setNotice("No he podido construir el calendario. Vuelve a intentarlo.");
+        return;
+      }
+      const payload = (await response.json()) as CalendarPayload;
+      setCalendar(payload);
+      const conFecha = payload.obligations.filter((item) => item.dueDate).length;
+      setNotice(
+        payload.obligations.length === 0
+          ? (payload.message ?? "Todavía no hay obligaciones que calcular.")
+          : `${conFecha} obligaciones con fecha en los próximos doce meses.`,
+      );
+    } catch {
+      setNotice("Sin conexión. No he podido construir el calendario.");
+    } finally {
+      setLoadingCalendar(false);
+    }
   }
 
   async function requestLinkCode() {
@@ -574,6 +672,7 @@ export function DashboardExperience({
             { id: "expediente", icono: "◇", texto: "Expediente" },
             { id: "tareas", icono: "✓", texto: "Paso" },
             { id: "actividad", icono: "◈", texto: "Actividad" },
+            { id: "calendario", icono: "▤", texto: "Plazos" },
             { id: "fuentes", icono: "§", texto: "AEAT" },
             { id: "trazabilidad", icono: "▱", texto: "Traza" },
           ].map((item) => (
@@ -957,6 +1056,94 @@ export function DashboardExperience({
                 disabled={classifying || !profile.business_description}
               >
                 {classifying ? "Clasificando…" : activity ? "Volver a clasificar" : "Clasificar actividad"}{" "}
+                <span aria-hidden="true">↗</span>
+              </button>
+            </section>
+
+            <section className="calendar-card" id="calendario">
+              <div className="section-heading">
+                <h2>Calendario de obligaciones</h2>
+                <span>
+                  {calendar
+                    ? `${calendar.obligations.filter((item) => item.dueDate).length} con fecha`
+                    : "sin calcular"}
+                </span>
+              </div>
+
+              {!calendar && (
+                <div className="calendar-card__intro">
+                  <p>
+                    Crear la empresa es el principio. Esto es lo que viene
+                    después: cada obligación con su modelo, su plazo, quién
+                    responde de ella y la sede oficial donde se comprueba.
+                  </p>
+                  <ul>
+                    <li><strong>Cómo</strong> — parte de lo que ya has respondido: forma jurídica, si hay local y si vas a contratar. Cada respuesta añade o retira obligaciones.</li>
+                    <li><strong>Qué te devuelve</strong> — las fechas de los próximos doce meses, ordenadas, y las que todavía no puedo cerrar dichas como tales.</li>
+                    <li><strong>Qué resuelve</strong> — que no te enteres de un plazo el día después. Un recargo por presentar tarde se paga aunque la declaración salga a cero.</li>
+                  </ul>
+                  <p className="calendar-card__warn">
+                    Sólo traslado los vencimientos que caen en sábado o domingo.
+                    Los festivos autonómicos y locales no están aplicados: la
+                    fecha de la sede manda sobre la mía.
+                  </p>
+                </div>
+              )}
+
+              {calendar && calendar.legalFormDecided === false && (
+                <p className="calendar-card__warn">
+                  Aún no has decidido la forma jurídica. Este calendario es el
+                  común a cualquier actividad; en cuanto la elijas cambia, porque
+                  una sociedad y un autónomo no presentan lo mismo.
+                </p>
+              )}
+
+              {calendar && calendar.obligations.length === 0 && (
+                <p className="calendar-card__warn">{calendar.message ?? "Todavía no hay nada que calcular."}</p>
+              )}
+
+              {calendar && calendar.obligations.length > 0 && (
+                <ol className="calendar-card__list">
+                  {calendar.obligations.map((item) => (
+                    <li key={item.code} className={`calendar-row calendar-row--${item.urgency.toLowerCase()}`}>
+                      <div className="calendar-row__when">
+                        <strong>{item.dueDate ? fechaLarga(item.dueDate) : "Por confirmar"}</strong>
+                        <small>{URGENCY_LABEL[item.urgency]}</small>
+                      </div>
+                      <div className="calendar-row__what">
+                        <strong>
+                          {item.model ? `Modelo ${item.model} · ` : ""}
+                          {item.title}
+                        </strong>
+                        <span className="calendar-row__period">{item.periodLabel}</span>
+                        <p>{item.detail}</p>
+                        <p className="calendar-row__rule">{item.windowRule}</p>
+                        {item.pendingVerification && (
+                          <p className="calendar-row__pending">{item.pendingVerification}</p>
+                        )}
+                        {item.shiftNote && <p className="calendar-row__shift">{item.shiftNote}</p>}
+                        <div className="calendar-row__meta">
+                          <span>{RESPONSIBLE_LABEL[item.responsible] ?? item.responsible}</span>
+                          <span>{item.authority}</span>
+                          <a href={item.sourceUrl} target="_blank" rel="noreferrer">
+                            {item.sourceTitle} <span aria-hidden="true">↗</span>
+                          </a>
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              )}
+
+              {calendar?.footer && <p className="calendar-card__footer">{calendar.footer}</p>}
+
+              <button
+                type="button"
+                className="gold-button gold-button--small"
+                onClick={() => void loadCalendar()}
+                disabled={loadingCalendar}
+              >
+                {loadingCalendar ? "Calculando…" : calendar ? "Volver a calcular" : "Calcular mis plazos"}{" "}
                 <span aria-hidden="true">↗</span>
               </button>
             </section>

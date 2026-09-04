@@ -1,0 +1,272 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  OBLIGATION_CATALOG,
+  daysUntil,
+  upcomingObligations,
+  urgencyOf,
+} from "@/lib/obligations-calendar";
+import { REGULATORY_FACTS, fact } from "@/lib/regulatory-facts";
+
+const AUTONOMO = { legalForm: "AUTONOMO" as const };
+const SOCIEDAD = { legalForm: "SL" as const };
+
+describe("catálogo de obligaciones", () => {
+  it("cada obligación apunta a un hecho regulatorio que existe y tiene fuente", () => {
+    for (const definition of OBLIGATION_CATALOG) {
+      const item = fact(definition.factKey);
+      expect(item, `falta el hecho ${definition.factKey} de ${definition.code}`).toBeDefined();
+      expect(item?.sources.length, `el hecho ${definition.factKey} no tiene fuente`).toBeGreaterThan(0);
+    }
+  });
+
+  it("todas las fuentes son instituciones estatales, nunca un tercero", () => {
+    const permitidos = ["sede.agenciatributaria.gob.es", "www.boe.es", "www.seg-social.es", "portal.seg-social.gob.es", "www.paeelectronico.es"];
+    for (const item of REGULATORY_FACTS) {
+      for (const source of item.sources) {
+        const host = new URL(source.url).host;
+        expect(permitidos, `fuente no oficial: ${source.url}`).toContain(host);
+      }
+    }
+  });
+
+  it("ningún texto del catálogo propone el modelo 037", () => {
+    const texto = OBLIGATION_CATALOG.map((d) => `${d.title} ${d.detail} ${d.windowRule} ${d.model ?? ""}`).join(" ");
+    expect(texto).not.toMatch(/\b037\b/);
+  });
+});
+
+describe("a quién le aplica cada obligación", () => {
+  it("una persona física no recibe obligaciones de sociedad", () => {
+    const codigos = upcomingObligations({ profile: AUTONOMO, from: "2026-09-04" }).map((o) => o.obligationCode);
+    expect(codigos).not.toContain("IS_200");
+    expect(codigos).not.toContain("IS_202");
+    expect(codigos).not.toContain("CUENTAS_ANUALES");
+    expect(codigos).toContain("IRPF_130");
+    expect(codigos).toContain("TGSS_RETA");
+  });
+
+  it("una sociedad no recibe el pago fraccionado de IRPF ni la cuota de RETA del titular", () => {
+    const codigos = upcomingObligations({ profile: SOCIEDAD, from: "2026-09-04" }).map((o) => o.obligationCode);
+    expect(codigos).not.toContain("IRPF_130");
+    expect(codigos).not.toContain("TGSS_RETA");
+    expect(codigos).toContain("IS_200");
+    expect(codigos).toContain("CUENTAS_ANUALES");
+  });
+
+  it("las retenciones por alquiler sólo aparecen si hay local", () => {
+    const sinLocal = upcomingObligations({ profile: SOCIEDAD, from: "2026-09-04" }).map((o) => o.obligationCode);
+    const conLocal = upcomingObligations({
+      profile: { ...SOCIEDAD, hasPremises: true },
+      from: "2026-09-04",
+    }).map((o) => o.obligationCode);
+    expect(sinLocal).not.toContain("RETENCIONES_115");
+    expect(conLocal).toContain("RETENCIONES_115");
+  });
+});
+
+describe("cálculo de plazos", () => {
+  it("el IVA del tercer trimestre de 2026 vence el 20 de octubre", () => {
+    const ocurrencias = upcomingObligations({ profile: AUTONOMO, from: "2026-09-04", horizonDays: 60 });
+    const tercero = ocurrencias.find((o) => o.obligationCode === "IVA_303" && o.periodLabel === "3T 2026");
+    expect(tercero?.dueDate).toBe("2026-10-20");
+  });
+
+  it("el IVA del cuarto trimestre vence a final de enero, no el día 20", () => {
+    const ocurrencias = upcomingObligations({ profile: AUTONOMO, from: "2026-09-04", horizonDays: 200 });
+    const cuarto = ocurrencias.find((o) => o.obligationCode === "IVA_303" && o.periodLabel === "4T 2026");
+    // 2027-01-30 cae en sábado: el vencimiento se traslada al lunes siguiente.
+    expect(cuarto?.dueDate).toBe("2027-02-01");
+    expect(cuarto?.shiftNote).toBeTruthy();
+    expect(cuarto?.windowRule).toContain("30 de enero");
+  });
+
+  it("las retenciones del cuarto trimestre vencen el 20 de enero", () => {
+    const ocurrencias = upcomingObligations({
+      profile: { ...SOCIEDAD, willHireWorkers: true },
+      from: "2026-09-04",
+      horizonDays: 200,
+    });
+    const cuarto = ocurrencias.find((o) => o.obligationCode === "RETENCIONES_111" && o.periodLabel === "4T 2026");
+    expect(cuarto?.dueDate).toBe("2027-01-20");
+  });
+
+  it("un vencimiento en sábado se traslada al lunes y lo advierte", () => {
+    // 2027-04-20 es martes; buscamos un caso real de fin de semana:
+    // 2025-04-20 fue domingo. Se comprueba con la utilidad de traslado.
+    const ocurrencias = upcomingObligations({ profile: AUTONOMO, from: "2025-01-01", horizonDays: 200 });
+    const segundo = ocurrencias.find((o) => o.obligationCode === "IVA_303" && o.periodLabel === "1T 2025");
+    expect(segundo?.dueDate).toBe("2025-04-21");
+    expect(segundo?.shiftNote).toContain("festivos autonómicos y locales no están aplicados");
+  });
+
+  it("ninguna fecha calculada cae en sábado o domingo", () => {
+    const ocurrencias = upcomingObligations({
+      profile: { ...SOCIEDAD, hasPremises: true, willHireWorkers: true },
+      from: "2026-01-01",
+      horizonDays: 730,
+    });
+    for (const o of ocurrencias) {
+      if (!o.dueDate) continue;
+      const dia = new Date(`${o.dueDate}T00:00:00Z`).getUTCDay();
+      expect([1, 2, 3, 4, 5], `${o.code} cae en fin de semana: ${o.dueDate}`).toContain(dia);
+    }
+  });
+
+  it("todas las fechas caen dentro de la ventana pedida", () => {
+    const ocurrencias = upcomingObligations({ profile: AUTONOMO, from: "2026-09-04", horizonDays: 90 });
+    for (const o of ocurrencias) {
+      if (!o.dueDate) continue;
+      expect(o.dueDate >= "2026-09-04").toBe(true);
+      expect(o.dueDate <= "2026-12-03").toBe(true);
+    }
+  });
+
+  it("la cuota de RETA vence el último día de cada mes", () => {
+    const ocurrencias = upcomingObligations({ profile: AUTONOMO, from: "2026-09-04", horizonDays: 120 }).filter(
+      (o) => o.obligationCode === "TGSS_RETA",
+    );
+    expect(ocurrencias.length).toBeGreaterThan(0);
+    // Septiembre de 2026 termina en miércoles 30.
+    expect(ocurrencias[0]?.dueDate).toBe("2026-09-30");
+  });
+});
+
+describe("regla de no inventar fechas", () => {
+  it("un hecho sin verificar produce una obligación sin fecha y con el aviso", () => {
+    const ocurrencias = upcomingObligations({
+      profile: { ...SOCIEDAD, willHireWorkers: true },
+      from: "2026-09-04",
+    });
+    const resumen = ocurrencias.find((o) => o.obligationCode === "RETENCIONES_190");
+    expect(resumen).toBeDefined();
+    expect(resumen?.dueDate).toBeNull();
+    expect(resumen?.pendingVerification).toBeTruthy();
+    // La regla en palabras sí está: lo que falta es el día.
+    expect(resumen?.windowRule).toContain("enero");
+  });
+
+  it("el depósito de cuentas no fija fecha porque depende de la junta", () => {
+    const cuentas = upcomingObligations({ profile: SOCIEDAD, from: "2026-09-04" }).find(
+      (o) => o.obligationCode === "CUENTAS_ANUALES",
+    );
+    expect(cuentas?.dueDate).toBeNull();
+    expect(cuentas?.pendingVerification).toContain("junta");
+  });
+
+  it("toda ocurrencia sin fecha explica qué falta comprobar", () => {
+    const ocurrencias = upcomingObligations({
+      profile: { ...SOCIEDAD, hasPremises: true, willHireWorkers: true },
+      from: "2026-09-04",
+    });
+    for (const o of ocurrencias) {
+      if (o.dueDate === null) expect(o.pendingVerification, o.code).toBeTruthy();
+    }
+  });
+
+  it("toda ocurrencia lleva enlace a su fuente oficial", () => {
+    const ocurrencias = upcomingObligations({
+      profile: { ...SOCIEDAD, hasPremises: true, willHireWorkers: true },
+      from: "2026-09-04",
+      horizonDays: 400,
+    });
+    expect(ocurrencias.length).toBeGreaterThan(0);
+    for (const o of ocurrencias) {
+      expect(o.sourceUrl, o.code).toMatch(/^https:\/\//);
+      expect(o.sourceTitle, o.code).not.toHaveLength(0);
+    }
+  });
+
+  it("los códigos de ocurrencia no se repiten", () => {
+    const ocurrencias = upcomingObligations({
+      profile: { ...SOCIEDAD, hasPremises: true, willHireWorkers: true },
+      from: "2026-09-04",
+      horizonDays: 400,
+    });
+    const codigos = ocurrencias.map((o) => o.code);
+    expect(new Set(codigos).size).toBe(codigos.length);
+  });
+});
+
+describe("orden y urgencia", () => {
+  it("las obligaciones con fecha van antes que las que no la tienen", () => {
+    const ocurrencias = upcomingObligations({
+      profile: { ...SOCIEDAD, willHireWorkers: true },
+      from: "2026-09-04",
+      horizonDays: 400,
+    });
+    const primeraSinFecha = ocurrencias.findIndex((o) => o.dueDate === null);
+    const ultimaConFecha = ocurrencias.map((o) => o.dueDate !== null).lastIndexOf(true);
+    if (primeraSinFecha !== -1) expect(primeraSinFecha).toBeGreaterThan(ultimaConFecha);
+  });
+
+  it("la urgencia distingue vencido, inminente, próximo y lejano", () => {
+    const base = {
+      code: "X",
+      obligationCode: "X",
+      model: null,
+      title: "t",
+      detail: "d",
+      authority: "AEAT",
+      periodicity: "ANUAL" as const,
+      responsible: "EMPRESA" as const,
+      periodLabel: "p",
+      windowRule: "w",
+      sourceUrl: "https://www.boe.es/",
+      sourceTitle: "s",
+    };
+    expect(urgencyOf({ ...base, dueDate: null }, "2026-09-04")).toBe("SIN_FECHA");
+    expect(urgencyOf({ ...base, dueDate: "2026-09-01" }, "2026-09-04")).toBe("VENCIDO");
+    expect(urgencyOf({ ...base, dueDate: "2026-09-08" }, "2026-09-04")).toBe("INMINENTE");
+    expect(urgencyOf({ ...base, dueDate: "2026-09-25" }, "2026-09-04")).toBe("PROXIMO");
+    expect(urgencyOf({ ...base, dueDate: "2026-12-25" }, "2026-09-04")).toBe("LEJANO");
+  });
+
+  it("daysUntil no depende del huso horario del servidor", () => {
+    expect(daysUntil("2026-10-20", "2026-09-04")).toBe(46);
+    expect(daysUntil("2026-09-04", "2026-09-04")).toBe(0);
+    expect(daysUntil("2026-09-01", "2026-09-04")).toBe(-3);
+  });
+});
+
+describe("correcciones detectadas con datos reales", () => {
+  it("la cuota de RETA nunca se traslada al mes siguiente", () => {
+    // 2026-10-31 cae en sábado. Trasladarla al lunes la sacaría de «su mismo
+    // mes» y contradiría la fuente de la Seguridad Social.
+    const ocurrencias = upcomingObligations({
+      profile: AUTONOMO,
+      from: "2026-10-01",
+      horizonDays: 400,
+    }).filter((o) => o.obligationCode === "TGSS_RETA");
+    const octubre = ocurrencias.find((o) => o.periodLabel === "octubre 2026");
+    expect(octubre?.dueDate).toBe("2026-10-31");
+    expect(octubre?.shiftNote).toBeUndefined();
+    for (const o of ocurrencias) {
+      const [, mesVencimiento] = (o.dueDate ?? "").split("-");
+      const mesPeriodo = o.periodLabel.split(" ")[0];
+      const meses = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+      expect(Number(mesVencimiento), `${o.periodLabel} vence fuera de su mes`).toBe(meses.indexOf(mesPeriodo) + 1);
+    }
+  });
+
+  it("en persona física ninguna obligación se atribuye a «la empresa»", () => {
+    const ocurrencias = upcomingObligations({
+      profile: { ...AUTONOMO, hasPremises: true, willHireWorkers: true },
+      from: "2026-09-04",
+      horizonDays: 400,
+    });
+    expect(ocurrencias.length).toBeGreaterThan(0);
+    for (const o of ocurrencias) {
+      expect(o.responsible, `${o.code} atribuido a EMPRESA siendo autónomo`).not.toBe("EMPRESA");
+    }
+  });
+
+  it("en sociedad sí se atribuye a la empresa y al administrador", () => {
+    const responsables = new Set(
+      upcomingObligations({ profile: SOCIEDAD, from: "2026-09-04", horizonDays: 400 }).map((o) => o.responsible),
+    );
+    expect(responsables.has("EMPRESA")).toBe(true);
+    expect(responsables.has("ADMINISTRADOR")).toBe(true);
+    expect(responsables.has("AUTONOMO")).toBe(false);
+  });
+});

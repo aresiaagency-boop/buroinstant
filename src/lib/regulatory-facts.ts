@@ -165,6 +165,169 @@ export const REGULATORY_FACTS: RegulatoryFact[] = [
       },
     ],
   },
+  {
+    key: "PLAZO_RETENCIONES_TRIMESTRAL",
+    statement:
+      "Las retenciones e ingresos a cuenta de cada trimestre (modelos 111, 115, 117, 123, 124, 126, 128, 136, 210 y 216) se presentan hasta el día 20 del mes siguiente al fin del trimestre. Las del cuarto trimestre, hasta el 20 de enero.",
+    authority: "OFFICIAL_SOURCE",
+    lastVerifiedAt: "2026-09-04",
+    confidence: 0.95,
+    requiresLiveVerification: false,
+    productRule:
+      "El calendario puede fijar la fecha de los modelos 111 y 115. Si cae en sábado, domingo o festivo, se traslada al siguiente día hábil y el aviso debe decir que los festivos autonómicos y locales no están aplicados.",
+    sources: [
+      {
+        authority: "AEAT",
+        title: "Calendario del contribuyente 2026 · hasta el 20 de abril",
+        url: "https://sede.agenciatributaria.gob.es/Sede/ayuda/calendario-contribuyente/calendario-contribuyente-2026/calendario-anual/abril/hasta-20-abril.html",
+      },
+      {
+        authority: "AEAT",
+        title: "Calendario del contribuyente 2026 · hasta el 20 de enero",
+        url: "https://sede.agenciatributaria.gob.es/Sede/ayuda/calendario-contribuyente/calendario-contribuyente-2026/calendario-anual/enero/hasta-20-enero.html",
+      },
+    ],
+  },
+  {
+    key: "PLAZO_IVA_TRIMESTRAL",
+    statement:
+      "La autoliquidación trimestral de IVA (modelo 303) se presenta hasta el día 20 del mes siguiente al fin del trimestre. La del cuarto trimestre, hasta el 30 de enero, junto con el resumen anual (modelo 390).",
+    authority: "OFFICIAL_SOURCE",
+    lastVerifiedAt: "2026-09-04",
+    confidence: 0.95,
+    requiresLiveVerification: false,
+    productRule:
+      "El calendario puede fijar la fecha del modelo 303 y del 390. El cuarto trimestre no vence el día 20: vence el 30 de enero.",
+    sources: [
+      {
+        authority: "AEAT",
+        title: "Calendario del contribuyente 2026 · hasta el 20 de abril",
+        url: "https://sede.agenciatributaria.gob.es/Sede/ayuda/calendario-contribuyente/calendario-contribuyente-2026/calendario-anual/abril/hasta-20-abril.html",
+      },
+      {
+        authority: "AEAT",
+        title: "Calendario del contribuyente 2026 · hasta el 30 de enero",
+        url: "https://sede.agenciatributaria.gob.es/Sede/ayuda/calendario-contribuyente/calendario-contribuyente-2026/calendario-anual/enero/hasta-30-enero.html",
+      },
+    ],
+  },
+  {
+    key: "PLAZO_PAGO_FRACCIONADO_IRPF",
+    statement:
+      "El pago fraccionado de IRPF en estimación directa (modelo 130) se presenta hasta el día 20 del mes siguiente al fin del trimestre; el del cuarto trimestre, hasta el 30 de enero.",
+    authority: "OFFICIAL_SOURCE",
+    lastVerifiedAt: "2026-09-04",
+    confidence: 0.94,
+    requiresLiveVerification: false,
+    productRule:
+      "Sólo aplica a persona física en estimación directa. Una sociedad no presenta el modelo 130.",
+    sources: [
+      {
+        authority: "AEAT",
+        title: "Calendario del contribuyente 2026 · hasta el 20 de abril",
+        url: "https://sede.agenciatributaria.gob.es/Sede/ayuda/calendario-contribuyente/calendario-contribuyente-2026/calendario-anual/abril/hasta-20-abril.html",
+      },
+      {
+        authority: "AEAT",
+        title: "Calendario del contribuyente 2026 · hasta el 30 de enero",
+        url: "https://sede.agenciatributaria.gob.es/Sede/ayuda/calendario-contribuyente/calendario-contribuyente-2026/calendario-anual/enero/hasta-30-enero.html",
+      },
+    ],
+  },
+  {
+    key: "PLAZO_PAGO_FRACCIONADO_SOCIEDADES",
+    statement:
+      "El pago fraccionado del Impuesto sobre Sociedades en régimen general (modelo 202) se presenta en abril, octubre y diciembre, hasta el día 20 de cada uno de esos meses.",
+    authority: "OFFICIAL_SOURCE",
+    lastVerifiedAt: "2026-09-04",
+    confidence: 0.9,
+    requiresLiveVerification: false,
+    productRule:
+      "Sólo aplica a entidades sujetas al Impuesto sobre Sociedades. La obligación de presentarlo depende de la cifra de negocios y del resultado del ejercicio anterior: el aviso debe decirlo.",
+    sources: [
+      {
+        authority: "AEAT",
+        title: "Calendario del contribuyente 2026 · hasta el 20 de abril",
+        url: "https://sede.agenciatributaria.gob.es/Sede/ayuda/calendario-contribuyente/calendario-contribuyente-2026/calendario-anual/abril/hasta-20-abril.html",
+      },
+    ],
+  },
+  {
+    key: "PLAZO_IMPUESTO_SOCIEDADES",
+    statement:
+      "La declaración anual del Impuesto sobre Sociedades (modelos 200 y 220) se presenta en los 25 días naturales siguientes a los seis meses posteriores al fin del período impositivo. Para entidades cuyo período impositivo coincide con el año natural, el plazo termina el 25 de julio; en el calendario de 2026 figura hasta el 27 de julio por traslado a día hábil.",
+    authority: "OFFICIAL_SOURCE",
+    lastVerifiedAt: "2026-09-04",
+    confidence: 0.95,
+    requiresLiveVerification: false,
+    productRule:
+      "Sólo aplica a entidades sujetas al Impuesto sobre Sociedades. Si el ejercicio no coincide con el año natural, la fecha se calcula desde el cierre y debe decirse expresamente.",
+    sources: [
+      {
+        authority: "AEAT",
+        title: "Calendario del contribuyente 2026 · hasta el 27 de julio",
+        url: "https://sede.agenciatributaria.gob.es/Sede/ayuda/calendario-contribuyente/calendario-contribuyente-2026/calendario-anual/julio/hasta-27-julio.html",
+      },
+    ],
+  },
+  {
+    key: "PLAZO_CUOTA_RETA",
+    statement:
+      "El ingreso de las cuotas del Régimen Especial de Trabajadores Autónomos correspondientes a cada mes se realiza dentro de ese mismo mes.",
+    authority: "OFFICIAL_SOURCE",
+    lastVerifiedAt: "2026-09-04",
+    confidence: 0.95,
+    requiresLiveVerification: false,
+    productRule:
+      "Aplica a quien esté de alta en RETA: autónomo y también socio administrador cuando corresponda. Con domiciliación el cargo lo practica la Tesorería; el aviso no puede afirmar que el pago ya está hecho.",
+    sources: [
+      {
+        authority: "Seguridad Social",
+        title: "Cotización y recaudación de trabajadores · plazo de ingreso",
+        url: "https://www.seg-social.es/wps/portal/wss/internet/Trabajadores/CotizacionRecaudacionTrabajadores/10721/10724/1320/1323",
+      },
+    ],
+  },
+  {
+    key: "PLAZO_RESUMEN_ANUAL_RETENCIONES",
+    statement:
+      "Los resúmenes anuales de retenciones (modelos 190 y 180) se presentan en enero, pero la fecha exacta del ejercicio en curso debe leerse en el calendario del contribuyente vigente.",
+    authority: "OFFICIAL_SOURCE",
+    lastVerifiedAt: "2026-09-04",
+    confidence: 0.6,
+    requiresLiveVerification: true,
+    verificationNote:
+      "El calendario del contribuyente consultado no confirma el día exacto de los modelos 190 y 180. Hay que comprobarlo en el calendario del ejercicio antes de fijar la fecha.",
+    productRule:
+      "La obligación se muestra sin fecha cerrada y con el enlace al calendario oficial. Nunca se presenta como una fecha confirmada.",
+    sources: [
+      {
+        authority: "AEAT",
+        title: "Calendario del contribuyente",
+        url: "https://sede.agenciatributaria.gob.es/Sede/calendario-contribuyente.html",
+      },
+    ],
+  },
+  {
+    key: "PLAZO_CUENTAS_ANUALES",
+    statement:
+      "Las cuentas anuales se depositan en el Registro Mercantil dentro del mes siguiente a su aprobación por la junta general, conforme al Reglamento del Registro Mercantil.",
+    authority: "OFFICIAL_SOURCE",
+    lastVerifiedAt: "2026-09-04",
+    confidence: 0.6,
+    requiresLiveVerification: true,
+    verificationNote:
+      "La fecha depende del día en que la junta apruebe las cuentas, que es un dato del expediente. Sin esa fecha no puede fijarse el vencimiento del depósito.",
+    productRule:
+      "Se muestra como obligación anual sin fecha cerrada hasta que el expediente registre la fecha de aprobación de la junta.",
+    sources: [
+      {
+        authority: "BOE",
+        title: "Real Decreto 1784/1996, Reglamento del Registro Mercantil",
+        url: "https://www.boe.es/buscar/act.php?id=BOE-A-1996-17533",
+      },
+    ],
+  },
 ];
 
 export function fact(key: string): RegulatoryFact | undefined {
