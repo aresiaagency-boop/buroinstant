@@ -2369,3 +2369,17 @@ a {
 .trust-note {
   scroll-margin-top: 4.5rem;
 }
+
+/* ── Estado de guardado del expediente ──────────────────────────────── */
+
+.persistence {
+  font-family: var(--font-mono);
+  font-size: 0.56rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.persistence--saved { color: var(--gold-antique); }
+.persistence--saving { color: var(--muted); }
+.persistence--failed { color: #d98b75; }
+.persistence--local { color: #6d6e6c; }

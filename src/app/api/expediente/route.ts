@@ -1,0 +1,83 @@
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { getCurrentActor } from "@/lib/auth";
+import { isDatabaseConfigured, redactDatabaseError } from "@/lib/db";
+import { readLatestProject, saveProjectProfile } from "@/lib/project-profile";
+import { ProjectAccessError } from "@/lib/task-repository";
+
+/**
+ * El expediente del panel.
+ *
+ * GET devuelve el expediente abierto más reciente de quien pregunta, para que
+ * al entrar se recupere lo ya respondido en lugar de empezar de cero.
+ *
+ * PATCH guarda un dato. Si todavía no hay expediente, lo crea: responder la
+ * primera pregunta ya deja constancia.
+ */
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const patchSchema = z
+  .object({
+    projectId: z.string().uuid().optional(),
+    business_description: z.string().trim().min(3).max(3_000).optional(),
+    preferred_legal_form: z.enum(["SL", "SLU", "AUTONOMO", "SIN_DECIDIR"]).optional(),
+    number_of_founders: z.number().int().min(1).max(20).optional(),
+    municipality: z.string().trim().min(2).max(160).optional(),
+    physical_premises: z.boolean().optional(),
+  })
+  .refine(
+    (value) =>
+      value.business_description !== undefined ||
+      value.preferred_legal_form !== undefined ||
+      value.number_of_founders !== undefined ||
+      value.municipality !== undefined ||
+      value.physical_premises !== undefined,
+    { message: "NOTHING_TO_SAVE" },
+  );
+
+export async function GET() {
+  const actor = await getCurrentActor();
+  if (!actor) return NextResponse.json({ error: "SESSION_REQUIRED" }, { status: 401 });
+  if (!isDatabaseConfigured()) {
+    return NextResponse.json({ error: "DATABASE_NOT_CONFIGURED", project: null }, { status: 503 });
+  }
+  try {
+    return NextResponse.json({ project: await readLatestProject(actor) });
+  } catch (error) {
+    return NextResponse.json(redactDatabaseError(error), { status: 500 });
+  }
+}
+
+export async function PATCH(request: Request) {
+  const actor = await getCurrentActor();
+  if (!actor) return NextResponse.json({ error: "SESSION_REQUIRED" }, { status: 401 });
+  if (!isDatabaseConfigured()) {
+    return NextResponse.json({ error: "DATABASE_NOT_CONFIGURED" }, { status: 503 });
+  }
+
+  const parsed = patchSchema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) {
+    return NextResponse.json({ error: "INVALID_INPUT", details: parsed.error.flatten() }, { status: 400 });
+  }
+
+  const { projectId, preferred_legal_form: forma, ...resto } = parsed.data;
+  try {
+    const project = await saveProjectProfile({
+      actor,
+      projectId,
+      patch: {
+        ...resto,
+        // "Todavía no lo sé" es una respuesta legítima: se guarda como sin decidir.
+        ...(forma !== undefined ? { preferred_legal_form: forma === "SIN_DECIDIR" ? null : forma } : {}),
+      },
+    });
+    return NextResponse.json({ project, orbEvent: "DATA_APPLIED" });
+  } catch (error) {
+    if (error instanceof ProjectAccessError) {
+      return NextResponse.json({ error: "PROJECT_NOT_FOUND" }, { status: 404 });
+    }
+    return NextResponse.json(redactDatabaseError(error), { status: 500 });
+  }
+}

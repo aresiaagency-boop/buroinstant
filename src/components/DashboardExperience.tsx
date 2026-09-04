@@ -152,6 +152,8 @@ export function DashboardExperience({
       text: "Cuéntame qué empresa quieres crear. Puedes hablar con naturalidad; yo convertiré la conversación en datos estructurados.",
     },
   ]);
+  const [projectId, setProjectId] = useState<string | null>(null);
+  const [persistence, setPersistence] = useState<"LOCAL" | "SAVING" | "SAVED" | "FAILED">("LOCAL");
   const [section, setSection] = useState("orbe");
   const [answering, setAnswering] = useState<CaseField | null>(null);
   const [answerDraft, setAnswerDraft] = useState("");
@@ -169,6 +171,39 @@ export function DashboardExperience({
   const inputRef = useRef<HTMLInputElement>(null);
   const answerRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+
+  /**
+   * Al entrar se recupera el expediente guardado. Antes los cinco datos vivían
+   * solo en el navegador y se perdían al refrescar.
+   */
+  useEffect(() => {
+    if (actor.mode !== "oauth" || !configuration.database) return;
+    let cancelado = false;
+    void (async () => {
+      try {
+        const response = await fetch("/api/expediente", { cache: "no-store" });
+        if (!response.ok) return;
+        const payload = (await response.json()) as {
+          project?: { id: string; profile: Record<string, unknown> } | null;
+        };
+        if (cancelado || !payload.project) return;
+        const limpio = Object.fromEntries(
+          Object.entries(payload.project.profile).filter(([, value]) => value !== undefined && value !== null),
+        );
+        setProjectId(payload.project.id);
+        setProfile(limpio);
+        setPersistence("SAVED");
+        if (Object.keys(limpio).length > 0) {
+          setNotice("Expediente recuperado. Continúa donde lo dejaste.");
+        }
+      } catch {
+        // Recuperar el expediente no puede impedir usar el panel.
+      }
+    })();
+    return () => {
+      cancelado = true;
+    };
+  }, [actor.mode, configuration.database]);
 
   useEffect(() => {
     if (actor.mode !== "local_preview") return;
@@ -267,11 +302,37 @@ export function DashboardExperience({
     }, 60);
   }
 
+  /** Guarda el dato en el expediente. En cuenta real, contra PostgreSQL. */
+  async function persistAnswer(field: CaseField, value: unknown) {
+    if (actor.mode !== "oauth" || !configuration.database) return;
+    setPersistence("SAVING");
+    try {
+      const response = await fetch("/api/expediente", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...(projectId ? { projectId } : {}), [field.key]: value }),
+      });
+      if (!response.ok) {
+        setPersistence("FAILED");
+        setNotice("El dato no se ha podido guardar en el expediente. Vuelve a intentarlo.");
+        return;
+      }
+      const payload = (await response.json()) as { project?: { id: string } };
+      if (payload.project?.id) setProjectId(payload.project.id);
+      setPersistence("SAVED");
+    } catch {
+      setPersistence("FAILED");
+      setNotice("Sin conexión con el expediente. El dato no se ha guardado.");
+    }
+  }
+
   function saveAnswer(field: CaseField, value: unknown) {
     const nextProfile = { ...profile, [field.key]: value };
     setProfile(nextProfile);
     if (actor.mode === "local_preview") {
       window.localStorage.setItem("buroinstant.preview.profile", JSON.stringify(nextProfile));
+    } else {
+      void persistAnswer(field, value);
     }
     setAnswering(null);
     setAnswerDraft("");
@@ -677,7 +738,15 @@ export function DashboardExperience({
             <section className="case-summary">
               <div className="section-heading">
                 <h2>Expediente vivo</h2>
-                <span>{confirmedCount} datos confirmados</span>
+                <span className={`persistence persistence--${persistence.toLowerCase()}`}>
+                  {persistence === "SAVING"
+                    ? "guardando…"
+                    : persistence === "SAVED"
+                      ? `${confirmedCount} datos guardados`
+                      : persistence === "FAILED"
+                        ? "sin guardar"
+                        : `${confirmedCount} datos · solo en este navegador`}
+                </span>
               </div>
               <dl>
                 {caseFields.map((field) => {
