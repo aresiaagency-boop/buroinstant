@@ -137,6 +137,39 @@ function tamanoLegible(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/** Un trámite del itinerario con los documentos que lo acreditan. */
+type ItineraryTask = {
+  code: string;
+  title: string;
+  detail: string;
+  authority: string;
+  status: string;
+  priority: number;
+  verificationMethod: string;
+  sourceUrl?: string;
+  pendingVerification?: string;
+  documents: Array<{ id: string; displayName: string; categoryLabel: string; sizeBytes: number }>;
+  confirmable: boolean;
+};
+
+type ItineraryPayload = {
+  project: { id: string; name: string } | null;
+  canConfirm?: boolean;
+  tasks: ItineraryTask[];
+  message?: string;
+};
+
+const TASK_STATUS_LABEL: Record<string, string> = {
+  NOT_STARTED: "Sin empezar",
+  WAITING_USER: "Te toca a ti",
+  READY: "Puedes hacerlo ya",
+  IN_PROGRESS: "Documento aportado",
+  WAITING_AUTHORITY: "Esperando a la Administración",
+  COMPLETED: "Hecho",
+  BLOCKED: "Bloqueado",
+  NOT_APPLICABLE: "No aplica",
+};
+
 const RESPONSIBLE_LABEL: Record<string, string> = {
   AUTONOMO: "Tú, como autónomo",
   EMPRESA: "La empresa",
@@ -269,6 +302,9 @@ export function DashboardExperience({
   const [vault, setVault] = useState<VaultPayload | null>(null);
   const [loadingVault, setLoadingVault] = useState(false);
   const [uploadingCategory, setUploadingCategory] = useState<string | null>(null);
+  const [itinerary, setItinerary] = useState<ItineraryPayload | null>(null);
+  const [loadingItinerary, setLoadingItinerary] = useState(false);
+  const [confirmingTask, setConfirmingTask] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pendingCategoryRef = useRef<string>("OTHER");
   const [sourceState, setSourceState] = useState<{
@@ -484,6 +520,57 @@ export function DashboardExperience({
     }
   }
 
+  /** Lee el itinerario con los documentos que acreditan cada trámite. */
+  async function loadItinerary() {
+    if (actor.mode !== "oauth" || !configuration.database) {
+      setNotice("El itinerario necesita una sesión real de Google y la base de datos configurada.");
+      return;
+    }
+    setLoadingItinerary(true);
+    try {
+      const response = await fetch("/api/expediente/tramites", { cache: "no-store" });
+      if (!response.ok) {
+        setNotice("No he podido leer el itinerario.");
+        return;
+      }
+      const payload = (await response.json()) as ItineraryPayload;
+      setItinerary(payload);
+      const hechos = payload.tasks.filter((t) => t.status === "COMPLETED").length;
+      setNotice(
+        payload.tasks.length === 0
+          ? (payload.message ?? "Todavía no hay itinerario que construir.")
+          : `${hechos} de ${payload.tasks.length} trámites hechos con evidencia.`,
+      );
+    } catch {
+      setNotice("Sin conexión. No he podido leer el itinerario.");
+    } finally {
+      setLoadingItinerary(false);
+    }
+  }
+
+  /** Da un trámite por hecho apoyándose en el documento ya aportado. */
+  async function confirmTask(task: ItineraryTask) {
+    setConfirmingTask(task.code);
+    try {
+      const response = await fetch("/api/expediente/tramites", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskCode: task.code }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        setNotice(payload.message ?? "No he podido dar ese trámite por hecho.");
+        return;
+      }
+      setNotice(payload.message ?? "Trámite dado por hecho.");
+      await loadItinerary();
+    } catch {
+      setNotice("Sin conexión. El trámite sigue como estaba.");
+    } finally {
+      setConfirmingTask(null);
+    }
+  }
+
   /** Abre el selector de archivos recordando a qué requisito responde. */
   function pickDocument(category: string) {
     pendingCategoryRef.current = category;
@@ -506,6 +593,9 @@ export function DashboardExperience({
       }
       setNotice(payload.message ?? "Guardado.");
       await loadVault();
+      // El papel puede haber movido un trámite: si el itinerario está a la
+      // vista, se refresca para que se vea el cambio.
+      if (itinerary) await loadItinerary();
     } catch {
       setNotice("Sin conexión. El documento no se ha guardado.");
     } finally {
@@ -777,6 +867,7 @@ export function DashboardExperience({
             { id: "actividad", icono: "◈", texto: "Actividad" },
             { id: "calendario", icono: "▤", texto: "Plazos" },
             { id: "archivo", icono: "⛁", texto: "Archivo" },
+            { id: "itinerario", icono: "⇢", texto: "Ruta" },
             { id: "fuentes", icono: "§", texto: "AEAT" },
             { id: "trazabilidad", icono: "▱", texto: "Traza" },
           ].map((item) => (
@@ -1358,6 +1449,109 @@ export function DashboardExperience({
                 disabled={loadingVault}
               >
                 {loadingVault ? "Abriendo…" : vault ? "Actualizar el archivo" : "Abrir mi archivo"}{" "}
+                <span aria-hidden="true">↗</span>
+              </button>
+            </section>
+
+            <section className="itinerary-card" id="itinerario">
+              <div className="section-heading">
+                <h2>Itinerario hasta tener la empresa</h2>
+                <span>
+                  {itinerary
+                    ? `${itinerary.tasks.filter((t) => t.status === "COMPLETED").length}/${itinerary.tasks.length} hechos`
+                    : "sin abrir"}
+                </span>
+              </div>
+
+              {!itinerary && (
+                <div className="itinerary-card__intro">
+                  <p>
+                    Todos los trámites que separan tu idea de una empresa
+                    existente, en el orden en que se pueden hacer y con lo que
+                    hace falta para dar cada uno por hecho.
+                  </p>
+                  <ul>
+                    <li><strong>Cómo</strong> — cada papel que subes al archivo mueve solo el trámite al que responde: la escritura mueve la escritura, el justificante del 036 mueve el alta censal.</li>
+                    <li><strong>Qué te devuelve</strong> — en qué punto estás, qué puedes hacer ya y qué está esperando a que responda un tercero.</li>
+                    <li><strong>Qué resuelve</strong> — saber si la empresa está creada de verdad, y poder demostrar con qué documento se cerró cada paso.</li>
+                  </ul>
+                  <p className="itinerary-card__warn">
+                    Un documento no da un trámite por hecho por su cuenta. La
+                    categoría la eliges tú, y un PDF mal clasificado cerraría un
+                    paso ante notaría sin que nadie lo mire. Lo cierras tú, y
+                    queda guardado con qué documento.
+                  </p>
+                </div>
+              )}
+
+              {itinerary && itinerary.tasks.length === 0 && (
+                <p className="itinerary-card__warn">{itinerary.message ?? "Todavía no hay itinerario."}</p>
+              )}
+
+              {itinerary && itinerary.tasks.length > 0 && (
+                <ol className="itinerary-card__list">
+                  {itinerary.tasks.map((task) => (
+                    <li key={task.code} className={`itinerary-row itinerary-row--${task.status.toLowerCase()}`}>
+                      <div className="itinerary-row__head">
+                        <strong>{task.title}</strong>
+                        <span>{TASK_STATUS_LABEL[task.status] ?? task.status}</span>
+                      </div>
+                      <p className="itinerary-row__detail">{task.detail}</p>
+                      <p className="itinerary-row__how">Se acredita con: {task.verificationMethod}</p>
+
+                      {task.pendingVerification && (
+                        <p className="itinerary-row__pending">{task.pendingVerification}</p>
+                      )}
+
+                      {task.documents.length > 0 && (
+                        <ul className="itinerary-row__files">
+                          {task.documents.map((documento) => (
+                            <li key={documento.id}>
+                              <a href={`/api/expediente/documentos/${documento.id}`} download>
+                                {documento.displayName} <span aria-hidden="true">↓</span>
+                              </a>
+                              <small>{documento.categoryLabel}</small>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+
+                      <div className="itinerary-row__meta">
+                        <span>{task.authority}</span>
+                        {task.sourceUrl && (
+                          <a href={task.sourceUrl} target="_blank" rel="noreferrer">
+                            fuente <span aria-hidden="true">↗</span>
+                          </a>
+                        )}
+                      </div>
+
+                      {task.status !== "COMPLETED" && task.confirmable && (
+                        <button
+                          type="button"
+                          className="text-button text-button--tiny"
+                          onClick={() => void confirmTask(task)}
+                          disabled={itinerary.canConfirm === false || confirmingTask !== null}
+                        >
+                          {confirmingTask === task.code ? "Cerrando…" : "Este documento lo acredita · dar por hecho"}
+                        </button>
+                      )}
+                      {task.status !== "COMPLETED" && !task.confirmable && (
+                        <p className="itinerary-row__need">
+                          Sin documento aportado no puedo darlo por hecho. Súbelo en el archivo.
+                        </p>
+                      )}
+                    </li>
+                  ))}
+                </ol>
+              )}
+
+              <button
+                type="button"
+                className="gold-button gold-button--small"
+                onClick={() => void loadItinerary()}
+                disabled={loadingItinerary}
+              >
+                {loadingItinerary ? "Abriendo…" : itinerary ? "Actualizar el itinerario" : "Ver mi itinerario"}{" "}
                 <span aria-hidden="true">↗</span>
               </button>
             </section>

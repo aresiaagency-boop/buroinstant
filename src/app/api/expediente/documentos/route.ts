@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getCurrentActor } from "@/lib/auth";
 import { isDatabaseConfigured, redactDatabaseError } from "@/lib/db";
 import { isEncryptionConfigured } from "@/lib/documents/encryption";
+import { linkDocumentToTasks } from "@/lib/documents/evidence-repository";
 import { listDocuments, storeDocument } from "@/lib/documents/repository";
 import {
   CATEGORY_LABEL,
@@ -178,13 +179,37 @@ export async function POST(request: Request) {
       bytes,
     });
 
+    // El papel no se queda en una carpeta: mueve el trámite al que responde.
+    // Si eso falla, el documento ya está guardado y no se pierde.
+    let effects: Awaited<ReturnType<typeof linkDocumentToTasks>> = [];
+    try {
+      effects = await linkDocumentToTasks({
+        actor,
+        projectId: project.id,
+        document: {
+          id: resultado.document.id,
+          category: resultado.document.category,
+          displayName: resultado.document.displayName,
+          contentHash: resultado.document.contentHash,
+        },
+      });
+    } catch {
+      // Enlazar con el itinerario no puede tumbar la subida.
+    }
+
+    const movidos = effects.length;
     return NextResponse.json(
       {
         document: resultado.document,
         duplicated: resultado.duplicated,
+        effects,
         message: resultado.duplicated
           ? "Ese documento ya estaba en el archivo; no lo he duplicado."
-          : "Guardado y cifrado en tu expediente.",
+          : movidos === 0
+            ? "Guardado y cifrado en tu expediente."
+            : movidos === 1
+              ? `Guardado y cifrado. Ha avanzado el trámite «${effects[0].taskTitle}».`
+              : `Guardado y cifrado. Han avanzado ${movidos} trámites del itinerario.`,
       },
       { status: resultado.duplicated ? 200 : 201 },
     );

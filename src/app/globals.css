@@ -2753,3 +2753,165 @@ a {
   font-family: var(--font-mono);
   font-size: 0.58rem;
 }
+
+/* ── Itinerario hasta tener la empresa ───────────────────────────────── */
+
+.itinerary-card {
+  padding: 1.15rem 1.25rem 1.35rem;
+  border: 1px solid var(--line);
+  background: rgba(9, 12, 17, 0.55);
+  scroll-margin-top: 5rem;
+}
+
+.itinerary-card__intro p {
+  margin: 0 0 0.7rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.6;
+}
+
+.itinerary-card__intro ul {
+  margin: 0 0 0.8rem;
+  padding-left: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.itinerary-card__intro li {
+  padding-left: 0.85rem;
+  border-left: 1px solid var(--line);
+  color: #797a79;
+  font-size: 0.72rem;
+  line-height: 1.55;
+}
+
+.itinerary-card__intro strong {
+  color: var(--gold-antique);
+  font-weight: 500;
+}
+
+.itinerary-card__warn {
+  margin: 0 0 0.9rem;
+  color: #6d6e6c;
+  font-size: 0.68rem;
+  line-height: 1.6;
+}
+
+.itinerary-card__list {
+  margin: 0 0 1rem;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.55rem;
+  max-height: 32rem;
+  overflow-y: auto;
+}
+
+.itinerary-row {
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--line);
+  border-left-width: 2px;
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.itinerary-row--completed { border-left-color: #6f7a63; }
+.itinerary-row--in_progress { border-left-color: var(--gold-antique); }
+.itinerary-row--waiting_authority { border-left-color: #5c6b7a; }
+.itinerary-row--ready { border-left-color: var(--gold-antique); }
+.itinerary-row--waiting_user { border-left-color: var(--gold-antique); }
+.itinerary-row--blocked { border-left-color: #a4553f; }
+.itinerary-row--not_started { border-left-color: var(--line); }
+.itinerary-row--not_applicable { border-left-color: #3c3d3b; opacity: 0.6; }
+
+.itinerary-row__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.itinerary-row__head strong {
+  color: var(--gold-white);
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+.itinerary-row__head span {
+  flex-shrink: 0;
+  color: #797a79;
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.itinerary-row__detail {
+  margin: 0.25rem 0 0.4rem;
+  color: var(--muted);
+  font-size: 0.73rem;
+  line-height: 1.55;
+}
+
+.itinerary-row__how,
+.itinerary-row__pending,
+.itinerary-row__need {
+  margin: 0 0 0.35rem;
+  font-size: 0.68rem;
+  line-height: 1.55;
+}
+
+.itinerary-row__how { color: #797a79; }
+.itinerary-row__pending { color: var(--gold-antique); }
+.itinerary-row__need { color: #6d6e6c; }
+
+.itinerary-row__files {
+  margin: 0.4rem 0 0.45rem;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.itinerary-row__files li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.itinerary-row__files a {
+  color: var(--gold-antique);
+  font-size: 0.74rem;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.itinerary-row__files a:hover { text-decoration: underline; }
+
+.itinerary-row__files small {
+  flex-shrink: 0;
+  color: #6d6e6c;
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+}
+
+.itinerary-row__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin: 0.35rem 0 0.4rem;
+  color: #797a79;
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.itinerary-row__meta a {
+  color: var(--gold-antique);
+  text-decoration: none;
+  text-transform: none;
+}
+
+.itinerary-row__meta a:hover { text-decoration: underline; }
