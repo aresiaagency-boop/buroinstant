@@ -1,0 +1,152 @@
+{
+  "name": "AVISOS_BUROINSTANT",
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "buroinstant-aviso",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "webhook-aviso",
+      "name": "Aviso entrante",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-400, 0],
+      "webhookId": "buroinstant-aviso"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "javaScript",
+        "jsCode": "// Verificación de la firma de BUROINSTANT.\n//\n// La firma se calcula sobre los BYTES EXACTOS que llegaron, no sobre el JSON\n// re-serializado: volver a serializar puede cambiar el orden de las claves o el\n// escapado y romper una firma que era buena.\n//\n// Se comprueban tres cosas y las tres tienen que pasar:\n//   1. Que el secreto esté configurado. Sin secreto no se acepta nada.\n//   2. Que la marca de tiempo tenga menos de 5 minutos, para que nadie pueda\n//      reenviar una petición legítima capturada antes.\n//   3. Que la firma coincida, comparada en tiempo constante.\n\nconst crypto = require('crypto');\n\nconst SECRET = $env.BUROINSTANT_OUTBOUND_SECRET || '';\nconst MAX_SKEW_MS = 5 * 60 * 1000;\n\nconst headers = $input.item.json.headers || {};\nconst timestamp = headers['x-buroinstant-timestamp'] || '';\nconst signatureHeader = String(headers['x-buroinstant-signature'] || '');\nconst signature = signatureHeader.replace(/^sha256=/, '');\n\n// Cuerpo crudo. Con rawBody activado, n8n lo deja en binario base64.\nlet rawBody = '';\nconst binary = $input.item.binary;\nif (binary && binary.data && binary.data.data) {\n  rawBody = Buffer.from(binary.data.data, 'base64').toString('utf8');\n} else if (typeof $input.item.json.rawBody === 'string') {\n  rawBody = $input.item.json.rawBody;\n} else {\n  rawBody = JSON.stringify($input.item.json.body || {});\n}\n\nfunction rechazar(motivo) {\n  return { json: { valido: false, motivo, phone: null, text: null, idempotencyKey: null } };\n}\n\nif (!SECRET || SECRET.length < 24) return rechazar('SECRET_NOT_CONFIGURED');\nif (!timestamp || !signature) return rechazar('MISSING_SIGNATURE');\n\nconst ts = Date.parse(timestamp);\nif (!Number.isFinite(ts)) return rechazar('BAD_TIMESTAMP');\nif (Math.abs(Date.now() - ts) > MAX_SKEW_MS) return rechazar('TIMESTAMP_OUT_OF_WINDOW');\n\nconst esperado = crypto.createHmac('sha256', SECRET).update(timestamp + '.' + rawBody).digest('hex');\nconst a = Buffer.from(esperado, 'utf8');\nconst b = Buffer.from(signature, 'utf8');\nif (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return rechazar('BAD_SIGNATURE');\n\n// Sólo a partir de aquí se mira el contenido: antes de verificar la firma, el\n// cuerpo es de origen desconocido.\nlet cuerpo;\ntry {\n  cuerpo = JSON.parse(rawBody);\n} catch (error) {\n  return rechazar('BODY_NOT_JSON');\n}\n\nconst phone = String(cuerpo.phone || '').replace(/\\D/g, '');\nconst text = String(cuerpo.text || '');\nif (!/^[0-9]{7,20}$/.test(phone)) return rechazar('BAD_PHONE');\nif (text.length < 1 || text.length > 4000) return rechazar('BAD_TEXT');\nif (cuerpo.source !== 'BUROINSTANT_DEADLINE_REMINDER') return rechazar('BAD_SOURCE');\n\nreturn {\n  json: {\n    valido: true,\n    motivo: 'OK',\n    phone,\n    text,\n    idempotencyKey: String(cuerpo.idempotencyKey || ''),\n  },\n};"
+      },
+      "id": "verificar-firma",
+      "name": "Verificar firma",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-160, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "firma-valida",
+              "leftValue": "={{ $json.valido }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "firma-valida",
+      "name": "¿Firma válida?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [80, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.EVOLUTION_API_URL }}/message/sendText/{{ $env.EVOLUTION_INSTANCE }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.EVOLUTION_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $json.phone, text: $json.text }) }}",
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "id": "enviar-evolution",
+      "name": "Enviar por Evolution",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [320, -100],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: ($json.statusCode >= 200 && $json.statusCode < 300), evolutionStatus: $json.statusCode }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "responder-ok",
+      "name": "Responder 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [560, -100]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, error: $json.motivo }) }}",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "id": "responder-401",
+      "name": "Responder 401",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [320, 120]
+    }
+  ],
+  "connections": {
+    "Aviso entrante": {
+      "main": [[{ "node": "Verificar firma", "type": "main", "index": 0 }]]
+    },
+    "Verificar firma": {
+      "main": [[{ "node": "¿Firma válida?", "type": "main", "index": 0 }]]
+    },
+    "¿Firma válida?": {
+      "main": [
+        [{ "node": "Enviar por Evolution", "type": "main", "index": 0 }],
+        [{ "node": "Responder 401", "type": "main", "index": 0 }]
+      ]
+    },
+    "Enviar por Evolution": {
+      "main": [[{ "node": "Responder 200", "type": "main", "index": 0 }]]
+    }
+  }
+}
