@@ -44,6 +44,7 @@ antes de eso el cuerpo es de origen desconocido.
 
 | Comprobación | Motivo devuelto |
 |---|---|
+| n8n bloquea el acceso al entorno en los nodos Code | `ENV_ACCESS_DENIED` |
 | El secreto no está configurado, o tiene menos de 24 caracteres | `SECRET_NOT_CONFIGURED` |
 | Falta la cabecera de firma o la de tiempo | `MISSING_SIGNATURE` |
 | La marca de tiempo no es una fecha | `BAD_TIMESTAMP` |
@@ -53,8 +54,23 @@ antes de eso el cuerpo es de origen desconocido.
 | El teléfono no son de 7 a 20 dígitos | `BAD_PHONE` |
 | El texto está vacío o pasa de 4000 caracteres | `BAD_TEXT` |
 | El origen no es el de los avisos | `BAD_SOURCE` |
+| Cualquier otro fallo inesperado | `VERIFICATION_ERROR` |
 
-Dos detalles que importan:
+### Si sale `ENV_ACCESS_DENIED`
+
+Tu n8n ejecuta los nodos Code en un runner que **bloquea el acceso a las
+variables de entorno**. Comprobado en tu instancia: sin esto, el nodo revienta.
+Añade en EasyPanel, al servicio de n8n, y reinicia:
+
+```
+N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+```
+
+Hasta entonces el workflow rechaza todo con 401 y ese motivo. Eso es
+deliberado: **falla cerrado**. Antes de que se colara un mensaje sin verificar,
+prefiere no enviar ninguno.
+
+Tres detalles que importan:
 
 - La firma se calcula sobre los **bytes exactos** que llegaron (`rawBody`), no
   sobre el JSON re-serializado. Volver a serializar puede cambiar el orden de
@@ -62,6 +78,11 @@ Dos detalles que importan:
 - La ventana de 5 minutos es lo que impide **reenviar** una petición legítima
   capturada antes. Sin ella, quien grabe una petición válida puede repetirla
   cuando quiera.
+- BUROINSTANT **no da por enviado un aviso sólo porque el HTTP diga 200**:
+  exige que el cuerpo responda `{"ok": true}`. Si el workflow revienta antes de
+  su nodo de respuesta, n8n contesta 200 con el cuerpo vacío y no se envió
+  nada; darlo por bueno haría constar como entregado un aviso que la persona
+  nunca recibió.
 
 ## 5 · Probarlo
 

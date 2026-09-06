@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
-import { isSenderConfigured, senderConfig } from "@/lib/notifications/whatsapp-sender";
+import { SendFailedError, isSenderConfigured, sendWhatsApp, senderConfig } from "@/lib/notifications/whatsapp-sender";
 import { signWebhookPayload, verifyWebhookSignature } from "@/lib/security/hmac";
 
 const SECRETO = "un-secreto-suficientemente-largo-para-firmar";
@@ -81,5 +81,71 @@ describe("la firma que n8n tiene que comprobar", () => {
     expect(
       verifyWebhookSignature({ secret: SECRETO, timestamp: viejo, signature: `sha256=${firma}`, rawBody: body }),
     ).toBe(false);
+  });
+});
+
+describe("un 200 no basta para dar el aviso por enviado", () => {
+  const CONFIG = {
+    WHATSAPP_OUTBOUND_WEBHOOK_URL: "https://n8n.example/hook",
+    WHATSAPP_OUTBOUND_SECRET: SECRETO,
+  };
+  const MENSAJE = { phone: "34600000000", text: "aviso", idempotencyKey: "k" };
+
+  function conRespuesta(status: number, body: string) {
+    return async () =>
+      new Response(body, { status, headers: { "Content-Type": "application/json" } });
+  }
+
+  const original = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = original;
+  });
+
+  it("acepta el envío sólo cuando el cuerpo confirma ok:true", async () => {
+    globalThis.fetch = conRespuesta(200, JSON.stringify({ ok: true })) as typeof fetch;
+    await expect(sendWhatsApp(MENSAJE, { env: CONFIG })).resolves.toBeUndefined();
+  });
+
+  it("un 200 con cuerpo vacío NO cuenta como enviado", async () => {
+    // Es exactamente lo que devuelve n8n cuando el workflow revienta antes de
+    // llegar a su nodo de respuesta: nada salió, pero el HTTP dice 200.
+    globalThis.fetch = conRespuesta(200, "") as typeof fetch;
+    await expect(sendWhatsApp(MENSAJE, { env: CONFIG })).rejects.toThrow(SendFailedError);
+  });
+
+  it("un 200 diciendo ok:false tampoco cuenta", async () => {
+    globalThis.fetch = conRespuesta(200, JSON.stringify({ ok: false, error: "ENV_ACCESS_DENIED" })) as typeof fetch;
+    await expect(sendWhatsApp(MENSAJE, { env: CONFIG })).rejects.toThrow(SendFailedError);
+  });
+
+  it("el motivo del fallo lo dice, para poder arreglarlo", async () => {
+    globalThis.fetch = conRespuesta(200, "") as typeof fetch;
+    try {
+      await sendWhatsApp(MENSAJE, { env: CONFIG });
+      throw new Error("debería haber fallado");
+    } catch (error) {
+      expect((error as SendFailedError).reason).toBe("NOT_CONFIRMED");
+    }
+  });
+
+  it("un 401 sigue fallando con su código", async () => {
+    globalThis.fetch = conRespuesta(401, JSON.stringify({ ok: false })) as typeof fetch;
+    try {
+      await sendWhatsApp(MENSAJE, { env: CONFIG });
+      throw new Error("debería haber fallado");
+    } catch (error) {
+      expect((error as SendFailedError).reason).toBe("HTTP_401");
+    }
+  });
+
+  it("ningún motivo de fallo contiene el texto del mensaje ni el secreto", async () => {
+    globalThis.fetch = conRespuesta(200, JSON.stringify({ ok: false, text: "aviso" })) as typeof fetch;
+    try {
+      await sendWhatsApp({ ...MENSAJE, text: "contenido personal" }, { env: CONFIG });
+    } catch (error) {
+      const texto = `${(error as Error).message} ${(error as SendFailedError).reason}`;
+      expect(texto).not.toContain("contenido personal");
+      expect(texto).not.toContain(SECRETO);
+    }
   });
 });

@@ -89,6 +89,20 @@ export async function sendWhatsApp(
       // Sólo el código: el cuerpo de la respuesta podría repetir el mensaje.
       throw new SendFailedError(`HTTP_${response.status}`);
     }
+
+    // Un 200 no basta. Comprobado en producción: si el workflow de n8n falla
+    // antes de llegar a su nodo de respuesta, el webhook contesta 200 con el
+    // cuerpo vacío y nunca se envió nada. Dar eso por bueno haría que el aviso
+    // constara como entregado y la persona no lo recibiera nunca.
+    // El acuerdo es explícito: sólo cuenta como enviado si el cuerpo lo dice.
+    let confirmado = false;
+    try {
+      const payload = (await response.json()) as { ok?: unknown };
+      confirmado = payload?.ok === true;
+    } catch {
+      confirmado = false;
+    }
+    if (!confirmado) throw new SendFailedError("NOT_CONFIRMED");
   } catch (error) {
     if (error instanceof SendFailedError) throw error;
     if (error instanceof Error && error.name === "AbortError") throw new SendFailedError("TIMEOUT");
