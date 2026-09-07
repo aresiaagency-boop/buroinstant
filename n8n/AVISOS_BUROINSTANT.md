@@ -1,104 +1,124 @@
 # AVISOS_BUROINSTANT · el workflow que envía los avisos de vencimiento
 
-BUROINSTANT **no habla con Evolution**. Firma un payload y llama a este
-workflow; este workflow verifica la firma y es quien envía con la credencial de
-Evolution. Así la clave de Evolution vive en un solo sitio —n8n— y no viaja
-nunca a Vercel.
+BUROINSTANT **no habla con Evolution**. Llama a este workflow, y este workflow
+es quien envía con la credencial de Evolution. Así la clave de Evolution vive en
+un solo sitio —n8n— y no viaja nunca a Vercel.
 
 ```
 BUROINSTANT (cron diario)          n8n (este workflow)              Evolution
-  firma HMAC-SHA256          →   verifica firma y ventana     →   envía el texto
-  timestamp + "." + body          rechaza con 401 si falla
+  cabecera con el token      →   n8n comprueba el token          →   envía el texto
+  + marca de tiempo               y luego la marca y el cuerpo
 ```
 
-## 1 · Importar
+## Por qué la firma HMAC ya no se verifica aquí
 
-En n8n: **Workflows → ⋯ → Import from File** y elige
-`avisos-buroinstant.workflow.json`.
+El diseño original firmaba el cuerpo con HMAC-SHA256 y el nodo Code lo
+comprobaba leyendo el secreto de `$env`. **En esta instancia eso no puede
+funcionar**, y no por una variable mal puesta:
 
-## 2 · Variables de entorno de n8n
+`N8N_RUNNERS_MODE=external`. Los nodos Code no se ejecutan dentro de n8n sino en
+un contenedor aparte, el *task runner*. Medido desde dentro de un nodo Code:
 
-El workflow no lleva ningún secreto dentro: los lee del entorno.
+```
+$env      → "access to env vars denied"
+process   → NO_DISPONIBLE
+```
 
-| Variable | Qué es |
-|---|---|
-| `BUROINSTANT_OUTBOUND_SECRET` | El mismo valor que `WHATSAPP_OUTBOUND_SECRET` en Vercel. Mínimo 24 caracteres. |
-| `EVOLUTION_API_URL` | La base de tu Evolution, sin barra final. |
-| `EVOLUTION_INSTANCE` | El nombre de la instancia. |
-| `EVOLUTION_API_KEY` | La clave de Evolution. **Rótala antes**: la anterior viajó dentro del cuerpo del webhook de ingesta y quedó en los datos de ejecución. |
+`N8N_BLOCK_ENV_ACCESS_IN_NODE` ya vale `false` en el servicio de n8n —y su valor
+por defecto ya era `false`—, pero no es esa la puerta. La del runner es
+`N8N_BLOCK_RUNNER_ENV_ACCESS`, que por defecto vale `true`, y en modo externo se
+configura dentro del propio contenedor del runner (`/etc/n8n-task-runners.json`,
+como `env-override`), no como variable del servicio.
 
-En EasyPanel se añaden en las variables de entorno del servicio de n8n; hace
-falta reiniciar el servicio para que las lea.
+Así que el secreto se sacó del nodo Code:
 
-## 3 · Activar y copiar la URL
+- **Quién llama** lo comprueba n8n en la puerta, con una credencial de cabecera
+  del propio nodo Webhook. El secreto vive cifrado en n8n y ningún nodo lo lee.
+- **La marca de tiempo** se sigue comprobando dentro, y no necesita secreto: es
+  lo que impide reenviar una petición legítima capturada antes.
+- **La firma** sigue viajando. No estorba, y el día que el runner pueda leer el
+  entorno se vuelve a verificar sin tocar el lado de BUROINSTANT.
 
-Publica el workflow y copia la **Production URL** del nodo `Aviso entrante`.
-Termina en `/webhook/buroinstant-aviso`. Ese valor es
-`WHATSAPP_OUTBOUND_WEBHOOK_URL` en Vercel.
+Es el mismo trato que ya usaba la ingesta en sentido contrario —un secreto
+compartido por cabecera, sobre HTTPS—, ahora en los dos sentidos.
 
-## 4 · Qué comprueba antes de enviar
+## Las dos credenciales
 
-El nodo `Verificar firma` rechaza y responde **401** si falla cualquiera de
-estas, y sólo mira el contenido del mensaje **después** de validar la firma:
-antes de eso el cuerpo es de origen desconocido.
+No hay ninguna variable de entorno que configurar. Hay dos credenciales de tipo
+**Header Auth** en n8n, ya creadas y enlazadas a los nodos. Sólo falta pegar su
+valor:
+
+| Credencial | Cabecera | Valor |
+|---|---|---|
+| `BUROINSTANT token de avisos` | `X-Buroinstant-Token` | El mismo que `WHATSAPP_OUTBOUND_SECRET` en Vercel |
+| `Evolution apikey avisos` | `apikey` | La clave de Evolution |
+
+Las dos están puestas hoy con el texto `PENDIENTE_DE_PEGAR`. En n8n:
+**Credentials → abrir → pegar el valor → Save**.
+
+La URL y la instancia de Evolution son constantes del nodo, no secretos, y ya
+están puestas.
+
+## Qué comprueba antes de enviar
+
+Primero n8n, en el webhook: sin el token correcto responde **403** y el workflow
+ni siquiera arranca. Después el nodo `Verificar aviso`, que responde **401** con
+el motivo:
 
 | Comprobación | Motivo devuelto |
 |---|---|
-| n8n bloquea el acceso al entorno en los nodos Code | `ENV_ACCESS_DENIED` |
-| El secreto no está configurado, o tiene menos de 24 caracteres | `SECRET_NOT_CONFIGURED` |
-| Falta la cabecera de firma o la de tiempo | `MISSING_SIGNATURE` |
+| El cuerpo no es JSON | `BODY_NOT_JSON` |
+| Falta la cabecera de tiempo | `MISSING_TIMESTAMP` |
 | La marca de tiempo no es una fecha | `BAD_TIMESTAMP` |
 | La marca de tiempo tiene más de 5 minutos | `TIMESTAMP_OUT_OF_WINDOW` |
-| La firma no coincide | `BAD_SIGNATURE` |
-| El cuerpo no es JSON | `BODY_NOT_JSON` |
+| El origen no es el de los avisos | `BAD_SOURCE` |
 | El teléfono no son de 7 a 20 dígitos | `BAD_PHONE` |
 | El texto está vacío o pasa de 4000 caracteres | `BAD_TEXT` |
-| El origen no es el de los avisos | `BAD_SOURCE` |
 | Cualquier otro fallo inesperado | `VERIFICATION_ERROR` |
 
-### Si sale `ENV_ACCESS_DENIED`
-
-Tu n8n ejecuta los nodos Code en un runner que **bloquea el acceso a las
-variables de entorno**. Comprobado en tu instancia: sin esto, el nodo revienta.
-Añade en EasyPanel, al servicio de n8n, y reinicia:
+Comprobado contra el webhook real, con el workflow publicado y activo:
 
 ```
-N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+sin token            → 403 Authorization data is wrong!
+token equivocado     → 403 Authorization data is wrong!
+sin marca de tiempo  → 401 MISSING_TIMESTAMP
+marca ilegible       → 401 BAD_TIMESTAMP
+marca de hace 30 min → 401 TIMESTAMP_OUT_OF_WINDOW
+origen distinto      → 401 BAD_SOURCE
+teléfono con letras  → 401 BAD_PHONE
+texto vacío          → 401 BAD_TEXT
+texto de 4001        → 401 BAD_TEXT
 ```
 
-Hasta entonces el workflow rechaza todo con 401 y ese motivo. Eso es
-deliberado: **falla cerrado**. Antes de que se colara un mensaje sin verificar,
-prefiere no enviar ninguno.
+Dos detalles que importan:
 
-Tres detalles que importan:
+- **Falla cerrado.** Cualquier duda rechaza. Antes de que se colara un aviso sin
+  comprobar, prefiere no enviar ninguno.
+- BUROINSTANT **no da por enviado un aviso porque el HTTP diga 200**: exige que
+  el cuerpo responda `{"ok": true}`. Si el workflow revienta antes de su nodo de
+  respuesta, n8n contesta 200 con el cuerpo vacío y no se envió nada; darlo por
+  bueno haría constar como entregado un aviso que la persona nunca recibió.
 
-- La firma se calcula sobre los **bytes exactos** que llegaron (`rawBody`), no
-  sobre el JSON re-serializado. Volver a serializar puede cambiar el orden de
-  las claves o el escapado y romper una firma que era buena.
-- La ventana de 5 minutos es lo que impide **reenviar** una petición legítima
-  capturada antes. Sin ella, quien grabe una petición válida puede repetirla
-  cuando quiera.
-- BUROINSTANT **no da por enviado un aviso sólo porque el HTTP diga 200**:
-  exige que el cuerpo responda `{"ok": true}`. Si el workflow revienta antes de
-  su nodo de respuesta, n8n contesta 200 con el cuerpo vacío y no se envió
-  nada; darlo por bueno haría constar como entregado un aviso que la persona
-  nunca recibió.
+## Probarlo
 
-## 5 · Probarlo
-
-Con el workflow publicado:
+Con las dos credenciales rellenas:
 
 ```bash
 node n8n/probar-avisos.mjs https://TU-N8N/webhook/buroinstant-aviso EL_SECRETO 34XXXXXXXXX
 ```
 
-Manda cuatro peticiones y espera:
+Siete peticiones: la primera debe dar **200** y llegar el mensaje; las otras
+seis, 403 o 401 con el motivo de arriba. Sólo la primera envía algo.
 
-1. firma correcta → **200** y el mensaje llega al teléfono
-2. sin firma → **401 MISSING_SIGNATURE**
-3. firma de otro secreto → **401 BAD_SIGNATURE**
-4. cuerpo alterado después de firmar → **401 BAD_SIGNATURE**
+Si la primera da 200 pero no llega el mensaje, el problema está entre n8n y
+Evolution, no en la autenticación: mira la salida del nodo `Enviar por
+Evolution`, que está configurado para no romper la ejecución y dejar ver el
+código de respuesta.
 
-Si el primero da 200 pero no llega el mensaje, el problema está entre n8n y
-Evolution, no en la firma: mira la salida del nodo `Enviar por Evolution`, que
-está configurado para no romper la ejecución y dejar ver el código de respuesta.
+## En Vercel
+
+| Variable | Qué es |
+|---|---|
+| `WHATSAPP_OUTBOUND_WEBHOOK_URL` | La Production URL del nodo `Aviso entrante`, que acaba en `/webhook/buroinstant-aviso`. |
+| `WHATSAPP_OUTBOUND_SECRET` | El mismo valor que la credencial `BUROINSTANT token de avisos`. Mínimo 24 caracteres. |
+| `CRON_SECRET` | Protege la tarea diaria que mira los vencimientos. |

@@ -149,3 +149,47 @@ describe("un 200 no basta para dar el aviso por enviado", () => {
     }
   });
 });
+
+describe("cómo se acredita ante n8n", () => {
+  const CONFIG = {
+    WHATSAPP_OUTBOUND_WEBHOOK_URL: "https://n8n.example/hook",
+    WHATSAPP_OUTBOUND_SECRET: SECRETO,
+  };
+  const original = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = original;
+  });
+
+  async function cabecerasDeUnEnvio() {
+    let capturadas: Headers | undefined;
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      capturadas = new Headers(init.headers as HeadersInit);
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+    await sendWhatsApp({ phone: "34600000000", text: "aviso", idempotencyKey: "k" }, { env: CONFIG });
+    return capturadas!;
+  }
+
+  it("manda el token de cabecera que comprueba el propio webhook de n8n", async () => {
+    // El nodo Code de n8n corre en un runner que bloquea las variables de
+    // entorno, así que allí no se puede verificar la firma. Quien llama se
+    // comprueba en la puerta, con una credencial de cabecera.
+    const cabeceras = await cabecerasDeUnEnvio();
+    expect(cabeceras.get("X-Buroinstant-Token")).toBe(SECRETO);
+  });
+
+  it("sigue mandando la marca de tiempo, que es lo que impide un reenvío", async () => {
+    const cabeceras = await cabecerasDeUnEnvio();
+    const marca = cabeceras.get("X-Buroinstant-Timestamp");
+    expect(marca).toBeTruthy();
+    expect(Math.abs(Date.now() - Date.parse(marca!))).toBeLessThan(10_000);
+  });
+
+  it("y la firma, para poder volver a verificarla el día que el runner lea el entorno", async () => {
+    const cabeceras = await cabecerasDeUnEnvio();
+    expect(cabeceras.get("X-Buroinstant-Signature")).toMatch(/^sha256=[0-9a-f]{64}$/);
+  });
+});

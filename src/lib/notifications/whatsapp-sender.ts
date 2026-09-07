@@ -79,7 +79,18 @@ export async function sendWhatsApp(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        // n8n comprueba quién llama en el propio webhook, con una credencial de
+        // cabecera. Su nodo Code no puede leer variables de entorno —los Code
+        // corren en un runner aparte que las bloquea, comprobado en producción—
+        // así que la firma HMAC no se puede verificar allí. Este es el mismo
+        // trato que ya usa la ingesta en sentido contrario: un secreto
+        // compartido por cabecera, sobre HTTPS.
+        "X-Buroinstant-Token": config.secret,
+        // La marca de tiempo sí se comprueba, y sin secreto: es lo que impide
+        // reenviar una petición legítima capturada antes.
         "X-Buroinstant-Timestamp": timestamp,
+        // La firma viaja igualmente: no estorba, y el día que el runner pueda
+        // leer el entorno se vuelve a verificar sin tocar este lado.
         "X-Buroinstant-Signature": `sha256=${signature}`,
       },
       body,

@@ -12,9 +12,8 @@
         "httpMethod": "POST",
         "path": "buroinstant-aviso",
         "responseMode": "responseNode",
-        "options": {
-          "rawBody": true
-        }
+        "authentication": "headerAuth",
+        "options": {}
       },
       "id": "webhook-aviso",
       "name": "Aviso entrante",
@@ -24,16 +23,19 @@
         -400,
         0
       ],
-      "webhookId": "buroinstant-aviso"
+      "webhookId": "buroinstant-aviso",
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "BUROINSTANT token de avisos"
+        }
+      }
     },
     {
       "parameters": {
-        "mode": "runOnceForEachItem",
-        "language": "javaScript",
-        "jsCode": "// Verificación de la firma de BUROINSTANT.\n//\n// La firma se calcula sobre los BYTES EXACTOS que llegaron, no sobre el JSON\n// re-serializado: volver a serializar puede cambiar el orden de las claves o el\n// escapado y romper una firma que era buena.\n//\n// Se comprueban tres cosas y las tres tienen que pasar:\n//   1. Que el secreto esté configurado. Sin secreto no se acepta nada.\n//   2. Que la marca de tiempo tenga menos de 5 minutos, para que nadie pueda\n//      reenviar una petición legítima capturada antes.\n//   3. Que la firma coincida, comparada en tiempo constante.\n\nconst crypto = require('crypto');\n\nconst MAX_SKEW_MS = 5 * 60 * 1000;\n\n// FALLA CERRADO. Algunas instalaciones de n8n ejecutan los nodos Code en un\n// runner que bloquea el acceso al entorno: leerlo lanza. Se envuelve, y si no\n// se puede leer el secreto se rechaza diciendo exactamente que falta\n// configurar. Un fallo que deja pasar es peor que un fallo que corta.\nfunction rechazar(motivo) {\n  return { json: { valido: false, motivo, phone: null, text: null, idempotencyKey: null } };\n}\n\nlet SECRET = '';\ntry {\n  SECRET = $env.BUROINSTANT_OUTBOUND_SECRET || '';\n} catch (error) {\n  return rechazar('ENV_ACCESS_DENIED');\n}\n\nconst headers = $input.item.json.headers || {};\nconst timestamp = headers['x-buroinstant-timestamp'] || '';\nconst signatureHeader = String(headers['x-buroinstant-signature'] || '');\nconst signature = signatureHeader.replace(/^sha256=/, '');\n\n// Cuerpo crudo. Con rawBody activado, n8n lo deja en binario base64.\nlet rawBody = '';\nconst binary = $input.item.binary;\nif (binary && binary.data && binary.data.data) {\n  rawBody = Buffer.from(binary.data.data, 'base64').toString('utf8');\n} else if (typeof $input.item.json.rawBody === 'string') {\n  rawBody = $input.item.json.rawBody;\n} else {\n  rawBody = JSON.stringify($input.item.json.body || {});\n}\n\nfunction rechazar(motivo) {\n  return { json: { valido: false, motivo, phone: null, text: null, idempotencyKey: null } };\n}\n\nif (!SECRET || SECRET.length < 24) return rechazar('SECRET_NOT_CONFIGURED');\nif (!timestamp || !signature) return rechazar('MISSING_SIGNATURE');\n\nconst ts = Date.parse(timestamp);\nif (!Number.isFinite(ts)) return rechazar('BAD_TIMESTAMP');\nif (Math.abs(Date.now() - ts) > MAX_SKEW_MS) return rechazar('TIMESTAMP_OUT_OF_WINDOW');\n\nconst esperado = crypto.createHmac('sha256', SECRET).update(timestamp + '.' + rawBody).digest('hex');\nconst a = Buffer.from(esperado, 'utf8');\nconst b = Buffer.from(signature, 'utf8');\nif (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return rechazar('BAD_SIGNATURE');\n\n// Sólo a partir de aquí se mira el contenido: antes de verificar la firma, el\n// cuerpo es de origen desconocido.\nlet cuerpo;\ntry {\n  cuerpo = JSON.parse(rawBody);\n} catch (error) {\n  return rechazar('BODY_NOT_JSON');\n}\n\nconst phone = String(cuerpo.phone || '').replace(/\\D/g, '');\nconst text = String(cuerpo.text || '');\nif (!/^[0-9]{7,20}$/.test(phone)) return rechazar('BAD_PHONE');\nif (text.length < 1 || text.length > 4000) return rechazar('BAD_TEXT');\nif (cuerpo.source !== 'BUROINSTANT_DEADLINE_REMINDER') return rechazar('BAD_SOURCE');\n\nreturn {\n  json: {\n    valido: true,\n    motivo: 'OK',\n    phone,\n    text,\n    idempotencyKey: String(cuerpo.idempotencyKey || ''),\n  },\n};"
+        "jsCode": "/**\n * Comprobacion del aviso.\n *\n * Quien llama lo comprueba n8n en el propio webhook, con una credencial de\n * cabecera: el secreto vive cifrado en n8n y este nodo no necesita leerlo.\n * Aqui se comprueba lo que se puede comprobar sin secreto, y se falla cerrado:\n * cualquier duda rechaza.\n */\nconst rechazar = (motivo) => [{ json: { valido: false, motivo } }];\ntry {\n  const entrada = $input.first().json || {};\n  const cab = entrada.headers || {};\n  const cuerpo = entrada.body;\n  if (!cuerpo || typeof cuerpo !== 'object') return rechazar('BODY_NOT_JSON');\n  const marca = cab['x-buroinstant-timestamp'];\n  if (!marca) return rechazar('MISSING_TIMESTAMP');\n  const t = Date.parse(marca);\n  if (!Number.isFinite(t)) return rechazar('BAD_TIMESTAMP');\n  // Cinco minutos: sin esto, quien capture una peticion valida puede repetirla.\n  if (Math.abs(Date.now() - t) > 300000) return rechazar('TIMESTAMP_OUT_OF_WINDOW');\n  if (cuerpo.source !== 'BUROINSTANT_DEADLINE_REMINDER') return rechazar('BAD_SOURCE');\n  const phone = String(cuerpo.phone == null ? '' : cuerpo.phone);\n  if (!/^[0-9]{7,20}$/.test(phone)) return rechazar('BAD_PHONE');\n  const text = String(cuerpo.text == null ? '' : cuerpo.text);\n  if (!text.trim() || text.length > 4000) return rechazar('BAD_TEXT');\n  const clave = String(cuerpo.idempotencyKey == null ? '' : cuerpo.idempotencyKey);\n  return [{ json: { valido: true, phone, text, idempotencyKey: clave } }];\n} catch (error) {\n  return rechazar('VERIFICATION_ERROR');\n}"
       },
       "id": "verificar-firma",
-      "name": "Verificar firma",
+      "name": "Verificar aviso",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
@@ -67,7 +69,7 @@
         "options": {}
       },
       "id": "firma-valida",
-      "name": "¿Firma válida?",
+      "name": "¿Aviso válido?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
@@ -78,14 +80,12 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.EVOLUTION_API_URL }}/message/sendText/{{ $env.EVOLUTION_INSTANCE }}",
+        "url": "https://gestor-tramites-evolution-api.7dklrk.easypanel.host/message/sendText/GESTOR_TRAMITES",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            {
-              "name": "apikey",
-              "value": "={{ $env.EVOLUTION_API_KEY }}"
-            },
             {
               "name": "Content-Type",
               "value": "application/json"
@@ -113,7 +113,12 @@
         320,
         -100
       ],
-      "onError": "continueRegularOutput"
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Evolution apikey avisos"
+        }
+      }
     },
     {
       "parameters": {
@@ -155,25 +160,25 @@
       "main": [
         [
           {
-            "node": "Verificar firma",
+            "node": "Verificar aviso",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Verificar firma": {
+    "Verificar aviso": {
       "main": [
         [
           {
-            "node": "¿Firma válida?",
+            "node": "¿Aviso válido?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "¿Firma válida?": {
+    "¿Aviso válido?": {
       "main": [
         [
           {
