@@ -3101,3 +3101,71 @@ a.gold-button {
   color: var(--gold-antique);
   font-size: 0.72rem;
 }
+
+/* La carpeta de presentación de un trámite: una hoja que se despliega dentro
+   de su fila, no otra pantalla que aprender. */
+.carpeta {
+  margin: 0.55rem 0 0.2rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-left: 2px solid var(--gold-antique);
+  border-radius: 0.35rem;
+  background: rgba(255, 255, 255, 0.025);
+  display: grid;
+  gap: 0.55rem;
+}
+
+.carpeta__paso {
+  margin: 0;
+  font-size: 0.74rem;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.carpeta__bloque h4 {
+  margin: 0 0 0.3rem;
+  font-size: 0.6rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: #797a79;
+  font-weight: 600;
+}
+
+.carpeta__bloque ul {
+  margin: 0;
+  padding-left: 1rem;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.carpeta__bloque li {
+  font-size: 0.7rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.carpeta__datos {
+  margin: 0;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.carpeta__datos div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+
+.carpeta__datos dt { margin: 0; color: #797a79; }
+.carpeta__datos dd { margin: 0; color: var(--text); text-align: right; }
+
+.carpeta__faltan li { color: var(--gold-antique); }
+
+.carpeta__aviso {
+  margin: 0;
+  font-size: 0.68rem;
+  line-height: 1.55;
+  color: var(--gold-antique);
+}

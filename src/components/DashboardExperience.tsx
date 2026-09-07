@@ -159,6 +159,23 @@ type ItineraryPayload = {
   message?: string;
 };
 
+/**
+ * La carpeta de presentación de un trámite: lo que hay que llevar, lo que ya
+ * está, y lo que falta. No dice que el trámite esté hecho ni lo presenta.
+ */
+type CarpetaVista = {
+  code: string;
+  title: string;
+  siguientePaso: string;
+  listoParaPresentar: boolean;
+  datos: Array<{ campo: string; etiqueta: string; valor: string }>;
+  faltan: Array<{ campo: string; etiqueta: string; comoSeConsigue: string }>;
+  papelesAportados: Array<{ category: string; etiqueta: string; documentId?: string; nombre?: string }>;
+  papelesQueFaltan: Array<{ category: string; etiqueta: string }>;
+  bloqueadoPor: Array<{ code: string; title: string; estado: string }>;
+  advertencias: string[];
+};
+
 const TASK_STATUS_LABEL: Record<string, string> = {
   NOT_STARTED: "Sin empezar",
   WAITING_USER: "Te toca a ti",
@@ -312,6 +329,8 @@ export function DashboardExperience({
   const [itinerary, setItinerary] = useState<ItineraryPayload | null>(null);
   const [loadingItinerary, setLoadingItinerary] = useState(false);
   const [confirmingTask, setConfirmingTask] = useState<string | null>(null);
+  const [carpeta, setCarpeta] = useState<CarpetaVista | null>(null);
+  const [carpetaCargando, setCarpetaCargando] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pendingCategoryRef = useRef<string>("OTHER");
   const [sourceState, setSourceState] = useState<{
@@ -556,6 +575,35 @@ export function DashboardExperience({
   }
 
   /** Da un trámite por hecho apoyándose en el documento ya aportado. */
+  /**
+   * Abre la carpeta de presentación de un trámite. Pulsar sobre la que ya está
+   * abierta la cierra: es una hoja, no una pestaña más que gestionar.
+   */
+  async function abrirCarpeta(task: ItineraryTask) {
+    if (carpeta?.code === task.code) {
+      setCarpeta(null);
+      return;
+    }
+    setCarpetaCargando(task.code);
+    try {
+      const response = await fetch(`/api/expediente/tramites/${encodeURIComponent(task.code)}/dossier`);
+      if (!response.ok) {
+        setNotice("No he podido preparar la carpeta de ese trámite.");
+        return;
+      }
+      const payload = (await response.json()) as { carpeta?: CarpetaVista };
+      if (!payload.carpeta) {
+        setNotice("No he podido preparar la carpeta de ese trámite.");
+        return;
+      }
+      setCarpeta(payload.carpeta);
+    } catch {
+      setNotice("Sin conexión. No he podido preparar la carpeta.");
+    } finally {
+      setCarpetaCargando(null);
+    }
+  }
+
   async function confirmTask(task: ItineraryTask) {
     setConfirmingTask(task.code);
     try {
@@ -1564,6 +1612,104 @@ export function DashboardExperience({
                           </a>
                         )}
                       </div>
+
+                      <button
+                        type="button"
+                        className="text-button text-button--tiny"
+                        onClick={() => void abrirCarpeta(task)}
+                        disabled={carpetaCargando !== null}
+                        aria-expanded={carpeta?.code === task.code}
+                      >
+                        {carpetaCargando === task.code
+                          ? "Preparando…"
+                          : carpeta?.code === task.code
+                            ? "Cerrar la carpeta"
+                            : "Preparar la carpeta de este trámite"}
+                      </button>
+
+                      {carpeta?.code === task.code && (
+                        <div className="carpeta">
+                          <p className="carpeta__paso">{carpeta.siguientePaso}</p>
+
+                          {carpeta.bloqueadoPor.length > 0 && (
+                            <div className="carpeta__bloque">
+                              <h4>Antes hay que cerrar</h4>
+                              <ul>
+                                {carpeta.bloqueadoPor.map((bloqueo) => (
+                                  <li key={bloqueo.code}>{bloqueo.title}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          {carpeta.datos.length > 0 && (
+                            <div className="carpeta__bloque">
+                              <h4>Datos que vas a necesitar a mano</h4>
+                              <dl className="carpeta__datos">
+                                {carpeta.datos.map((dato) => (
+                                  <div key={dato.campo}>
+                                    <dt>{dato.etiqueta}</dt>
+                                    <dd>{dato.valor}</dd>
+                                  </div>
+                                ))}
+                              </dl>
+                            </div>
+                          )}
+
+                          {carpeta.faltan.length > 0 && (
+                            <div className="carpeta__bloque">
+                              <h4>Faltan en el expediente</h4>
+                              <ul className="carpeta__faltan">
+                                {carpeta.faltan.map((hueco) => (
+                                  <li key={hueco.campo}>
+                                    <strong>{hueco.etiqueta}</strong> — {hueco.comoSeConsigue}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          {carpeta.papelesAportados.length > 0 && (
+                            <div className="carpeta__bloque">
+                              <h4>Papeles ya aportados</h4>
+                              <ul>
+                                {carpeta.papelesAportados.map((papel) => (
+                                  <li key={papel.category}>
+                                    {papel.etiqueta}
+                                    {papel.nombre ? ` — ${papel.nombre}` : ""}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          {carpeta.papelesQueFaltan.length > 0 && (
+                            <div className="carpeta__bloque">
+                              <h4>Papeles que faltan por subir</h4>
+                              <ul className="carpeta__faltan">
+                                {carpeta.papelesQueFaltan.map((papel) => (
+                                  <li key={papel.category}>{papel.etiqueta}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          {carpeta.advertencias.map((aviso) => (
+                            <p className="carpeta__aviso" key={aviso}>
+                              {aviso}
+                            </p>
+                          ))}
+
+                          <a
+                            className="text-button text-button--tiny"
+                            href={`/api/expediente/tramites/${encodeURIComponent(task.code)}/dossier?formato=html`}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Abrir para imprimir o guardar en PDF <span aria-hidden="true">↗</span>
+                          </a>
+                        </div>
+                      )}
 
                       {task.status !== "COMPLETED" && task.confirmable && (
                         <button

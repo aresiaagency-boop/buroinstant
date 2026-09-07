@@ -47,6 +47,24 @@ const nextConfig: NextConfig = {
           { key: "Content-Security-Policy", value: "default-src 'none'; sandbox" },
         ],
       },
+      {
+        // La carpeta imprimible de un trámite. Lleva dentro datos del
+        // expediente y nombres de fichero que pueden venir de WhatsApp, que es
+        // entrada no confiable: se sirve sin poder cargar ni ejecutar nada.
+        // Sólo estilos en línea, que es lo que necesita para imprimirse.
+        // También va DESPUÉS de la regla general, por lo mismo.
+        source: "/api/expediente/tramites/:code/dossier",
+        headers: [
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "no-referrer" },
+          { key: "X-Frame-Options", value: "DENY" },
+          {
+            key: "Content-Security-Policy",
+            value:
+              "default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; script-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'none'",
+          },
+        ],
+      },
     ];
   },
 };
