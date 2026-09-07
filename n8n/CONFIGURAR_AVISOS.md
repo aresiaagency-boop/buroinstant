@@ -1,0 +1,223 @@
+# Cómo conseguir cada variable de los avisos
+
+Cinco variables en n8n y tres en Vercel. Dos de las de n8n ya están
+averiguadas de tu propia instalación; las otras tres las decides o las generas
+tú.
+
+---
+
+## Dónde se ponen las variables de n8n
+
+Todas van al **mismo sitio**, y el sitio no es n8n: es EasyPanel.
+
+1. Entra en EasyPanel.
+2. Abre el proyecto donde vive n8n (el que sirve
+   `gestor-tramites-n8n.7dklrk.easypanel.host`).
+3. Pulsa el servicio **n8n**.
+4. Pestaña **Environment** (a veces «Env» o «Variables de entorno»).
+5. Verás una caja de texto con líneas `CLAVE=valor`. Añade las tuyas, una por
+   línea, sin comillas y sin espacios alrededor del `=`.
+6. **Save**, y después **Deploy** o **Restart** en ese servicio.
+
+El reinicio no es opcional: n8n lee el entorno al arrancar. Si guardas y no
+reinicias, sigue sin verlas y el workflow te seguirá devolviendo el mismo
+error.
+
+Para comprobar que han entrado, vuelve a lanzar la prueba del apartado final.
+
+---
+
+## 1 · `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`
+
+**No hay nada que conseguir: el valor es literalmente `false`.** Se copia tal
+cual.
+
+**Qué hace.** Por defecto n8n prohíbe que un nodo Code lea variables de
+entorno. Es una protección razonable: evita que un workflow importado de
+internet se lleve tus secretos. Pero el nodo que verifica la firma necesita
+leer el secreto compartido, y sin este permiso lanza
+`access to env vars denied`.
+
+**Comprobado en tu instancia:** es exactamente lo que estaba pasando. El nodo
+reventaba y el webhook respondía `401 ENV_ACCESS_DENIED`.
+
+**Qué estás abriendo al ponerlo.** Que **cualquier** nodo Code de **cualquier**
+workflow de esa instancia pueda leer **todas** las variables de entorno del
+servicio. En tu caso hay tres workflows, todos tuyos, así que el riesgo real es
+bajo. Pero la regla que se deriva es firme: a partir de ahora, **no importes en
+esa instancia workflows de terceros sin leer antes su código**.
+
+---
+
+## 2 · `BUROINSTANT_OUTBOUND_SECRET`
+
+**Este lo generas tú.** Es una contraseña larga que sólo conocen dos sitios:
+BUROINSTANT, que firma, y n8n, que verifica. No se pide a nadie ni se saca de
+ningún panel.
+
+Genéralo en tu terminal:
+
+```
+node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"
+```
+
+Salen 48 caracteres. El mínimo que acepta el workflow son 24; por debajo de eso
+responde `SECRET_NOT_CONFIGURED` a propósito, para que un secreto flojo no pase
+por bueno.
+
+**El mismo valor va en dos sitios, y tienen que ser idénticos:**
+
+| Dónde | Nombre de la variable |
+|---|---|
+| n8n (EasyPanel) | `BUROINSTANT_OUTBOUND_SECRET` |
+| Vercel | `WHATSAPP_OUTBOUND_SECRET` |
+
+Se llaman distinto porque cada lado lo nombra desde su punto de vista: para
+BUROINSTANT es «el secreto de salida», para n8n es «el secreto de BUROINSTANT».
+El valor es el mismo.
+
+Si no coinciden, el workflow responde `401 BAD_SIGNATURE`. Eso no es un fallo:
+es la comprobación funcionando.
+
+Guárdalo en tu gestor de contraseñas antes de pegarlo. Si lo pierdes, se
+regenera y se cambia en los dos sitios; no se pierde nada más.
+
+---
+
+## 3 · `EVOLUTION_API_URL`
+
+**Ya está averiguada.** Sale de una ejecución real de tu workflow de ingesta:
+
+```
+EVOLUTION_API_URL=https://gestor-tramites-evolution-api.7dklrk.easypanel.host
+```
+
+**Sin barra al final.** El workflow le añade `/message/sendText/...`, y con
+barra saldría una URL con `//` que Evolution rechaza.
+
+**De dónde salió.** Tu Evolution manda ese valor dentro del propio webhook, en
+`instance.server_url`. Se puede confirmar también en EasyPanel: es el dominio
+del servicio `gestor-tramites-evolution-api`.
+
+---
+
+## 4 · `EVOLUTION_INSTANCE`
+
+**Ya está averiguada**, del mismo sitio (`instance.instance`):
+
+```
+EVOLUTION_INSTANCE=GESTOR_TRAMITES
+```
+
+Respeta mayúsculas y guion bajo: Evolution distingue.
+
+**Qué es.** Una instancia de Evolution es una sesión de WhatsApp: un número
+vinculado por QR. Ésta es la que ya tienes conectada y por la que te llegan los
+mensajes. Puedes verla en el panel de Evolution, en la lista de instancias.
+
+---
+
+## 5 · `EVOLUTION_API_KEY` — y por qué hay que rotarla antes
+
+**Dónde está ahora.** Es la clave de tu Evolution. Vive en EasyPanel, en el
+servicio **gestor-tramites-evolution-api**, pestaña **Environment**,
+normalmente como `AUTHENTICATION_API_KEY`.
+
+**Por qué hay que cambiarla antes de usarla.** Tu Evolution manda esa clave
+**dentro del cuerpo de cada webhook** que envía a n8n, en `instance.apikey`.
+Comprobado: está ahí, en los datos de ejecución guardados. Consecuencias:
+
+- Queda escrita en el historial de ejecuciones de n8n, sin cifrar.
+- Cualquiera que abra una ejecución la ve.
+- Si alguna vez exportaste o compartiste una ejecución, viajó con ella.
+
+Una clave que ha estado a la vista deja de ser un secreto, aunque no sepas de
+nadie que la haya mirado. Por eso el orden importa: **primero rotar, después
+configurar**.
+
+### Cómo rotarla
+
+1. Genera una nueva:
+   ```
+   node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"
+   ```
+2. EasyPanel → servicio **gestor-tramites-evolution-api** → **Environment** →
+   sustituye el valor de `AUTHENTICATION_API_KEY` → **Save** → **Restart**.
+3. EasyPanel → servicio **n8n** → **Environment** → pon la **nueva** clave en
+   `EVOLUTION_API_KEY` → **Save** → **Restart**.
+
+### Antes de rotar, ten en cuenta
+
+Cambiar esa clave **corta el acceso a todo lo que hable con Evolution con la
+clave vieja**. Repasa qué tienes apuntando ahí antes de tocarla; si hay algo
+más aparte de n8n, tendrás que actualizarlo también.
+
+La instancia de WhatsApp **no se desvincula** por rotar la clave: el QR y la
+sesión no dependen de ella. Pero compruébalo enviándote un mensaje después.
+
+### Lo que queda pendiente aparte
+
+Rotar la clave no arregla la causa: tu Evolution **seguirá mandándola** dentro
+de cada webhook, y volverá a quedar guardada en las ejecuciones. Arreglarlo del
+todo es dejar de propagar `instance.apikey` en el nodo `Edit Fields6` del
+workflow de ingesta, para que no llegue a los datos guardados. Es un cambio
+aparte, en otro workflow, y conviene hacerlo con calma.
+
+---
+
+## Resumen para copiar
+
+**En EasyPanel → servicio n8n → Environment:**
+
+```
+N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+BUROINSTANT_OUTBOUND_SECRET=<lo que generes>
+EVOLUTION_API_URL=https://gestor-tramites-evolution-api.7dklrk.easypanel.host
+EVOLUTION_INSTANCE=GESTOR_TRAMITES
+EVOLUTION_API_KEY=<la NUEVA, después de rotarla>
+```
+
+Save → Restart.
+
+**En Vercel → Settings → Environment Variables → Production:**
+
+```
+CRON_SECRET=<genera otro distinto>
+WHATSAPP_OUTBOUND_SECRET=<el MISMO que BUROINSTANT_OUTBOUND_SECRET>
+WHATSAPP_OUTBOUND_WEBHOOK_URL=https://gestor-tramites-n8n.7dklrk.easypanel.host/webhook/buroinstant-aviso
+```
+
+Y redespliega.
+
+---
+
+## Comprobar que ha funcionado
+
+```
+node n8n/probar-avisos.mjs \
+  https://gestor-tramites-n8n.7dklrk.easypanel.host/webhook/buroinstant-aviso \
+  EL_SECRETO 34XXXXXXXXX
+```
+
+Lo que debes ver:
+
+| Prueba | Antes de configurar | Bien configurado |
+|---|---|---|
+| firma correcta | 401 `ENV_ACCESS_DENIED` | **200** y llega el mensaje |
+| sin firma | 401 `ENV_ACCESS_DENIED` | 401 `MISSING_SIGNATURE` |
+| firma de otro secreto | 401 `ENV_ACCESS_DENIED` | 401 `BAD_SIGNATURE` |
+| cuerpo alterado | 401 `ENV_ACCESS_DENIED` | 401 `BAD_SIGNATURE` |
+
+Que los motivos cambien de `ENV_ACCESS_DENIED` a `MISSING_SIGNATURE` y
+`BAD_SIGNATURE` es la señal de que la verificación está trabajando de verdad, y
+no simplemente cortando por configuración.
+
+### Si algo no cuadra
+
+| Lo que ves | Qué falta |
+|---|---|
+| `ENV_ACCESS_DENIED` | Falta `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`, o no reiniciaste |
+| `SECRET_NOT_CONFIGURED` | Falta `BUROINSTANT_OUTBOUND_SECRET`, o tiene menos de 24 caracteres |
+| `BAD_SIGNATURE` en la prueba buena | Los dos secretos no son idénticos |
+| 200 pero no llega el mensaje | El problema está entre n8n y Evolution: mira el nodo `Enviar por Evolution` en la ejecución |
+| `TIMESTAMP_OUT_OF_WINDOW` | El reloj del servidor va desviado más de 5 minutos |
