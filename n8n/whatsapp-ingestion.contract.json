@@ -1,18 +1,111 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "BUROINSTANT WhatsApp normalized ingestion",
+  "title": "BUROINSTANT WhatsApp · contrato de ingesta",
+  "description": "Lo que n8n envía a /api/internal/ingestion/whatsapp y lo que la aplicación responde. La respuesta decide quién contesta a la persona.",
   "type": "object",
-  "additionalProperties": false,
-  "required": ["provider", "event", "instance", "messageId", "phone", "type", "text", "timestamp"],
   "properties": {
-    "provider": { "const": "EVOLUTION_API" },
-    "event": { "const": "messages.upsert" },
-    "instance": { "type": "string", "minLength": 1, "maxLength": 120 },
-    "messageId": { "type": "string", "minLength": 1, "maxLength": 250 },
-    "phone": { "type": "string", "pattern": "^[0-9]{7,20}$" },
-    "pushName": { "type": "string", "maxLength": 160 },
-    "type": { "enum": ["text", "voice"] },
-    "text": { "type": "string", "minLength": 1, "maxLength": 12000 },
-    "timestamp": { "type": "string", "format": "date-time" }
+    "peticion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "event",
+        "instance",
+        "messageId",
+        "phone",
+        "type",
+        "text",
+        "timestamp"
+      ],
+      "properties": {
+        "provider": {
+          "const": "EVOLUTION_API"
+        },
+        "event": {
+          "const": "messages.upsert"
+        },
+        "instance": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "messageId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 250
+        },
+        "phone": {
+          "type": "string",
+          "pattern": "^[0-9]{7,20}$"
+        },
+        "pushName": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "type": {
+          "enum": [
+            "text",
+            "voice"
+          ]
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 12000
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "respuesta": {
+      "type": "object",
+      "required": [
+        "status",
+        "handled"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "LINKED",
+            "LINK_CODE_INVALID",
+            "LINK_REQUIRED",
+            "DUPLICATE_EVENT",
+            "APPLIED",
+            "NEEDS_CONFIRMATION"
+          ],
+          "description": "Qué ha pasado con el mensaje."
+        },
+        "handled": {
+          "type": "boolean",
+          "description": "true = la aplicación ya decidió la respuesta; el agente NO debe contestar. false = es conversación y le toca al agente."
+        },
+        "replyText": {
+          "type": "string",
+          "description": "El texto exacto que hay que enviar a la persona. Se envía tal cual, sin pasarlo por el agente. Puede faltar cuando handled es true y no hay nada que decir (evento duplicado): entonces no se responde nada."
+        },
+        "extractedFields": {
+          "type": "array",
+          "description": "Sólo cuando handled es false."
+        },
+        "contradictions": {
+          "type": "array"
+        }
+      }
+    }
+  },
+  "x-regla": [
+    "handled=true y replyText con texto  -> enviar replyText por WhatsApp. El agente no interviene.",
+    "handled=true y sin replyText        -> no responder nada (el mensaje ya se contestó antes).",
+    "handled=false                       -> el agente redacta la respuesta."
+  ],
+  "x-codigos-http": {
+    "200": "El evento se ha procesado. El resultado va en `status`, incluido un código de vinculación inválido: es un desenlace de negocio, no un fallo de transporte, y un 4xx haría fallar el nodo del workflow y dejaría a la persona sin respuesta.",
+    "400": "El cuerpo no encaja con el contrato, o la instancia no coincide.",
+    "401": "Falta la firma HMAC o el Bearer, o no son válidos.",
+    "429": "Demasiados mensajes de ese número.",
+    "500": "Fallo al consultar la base de datos. Reintentar; NO decirle a la persona que su código no vale.",
+    "503": "Falta configuración en la aplicación (INGESTION_NOT_CONFIGURED)."
   }
 }

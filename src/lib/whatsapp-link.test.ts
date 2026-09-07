@@ -7,6 +7,7 @@ import {
   linkInstructions,
   maskPhone,
   parseLinkCode,
+  readLinkAttempt,
   waLink,
 } from "@/lib/whatsapp-link";
 
@@ -114,5 +115,44 @@ describe("a qué número se envía el código", () => {
   it("y dice que falta el destino cuando no lo hay, en vez de callarlo", () => {
     const texto = linkInstructions("ABC234", null);
     expect(texto).toContain("Falta configurar el número");
+  });
+});
+
+describe("distinguir un intento de vincular de una palabra cualquiera", () => {
+  it("con el prefijo, es un intento explícito", () => {
+    expect(readLinkAttempt("VINCULAR ABC234")).toEqual({ code: "ABC234", explicit: true });
+    expect(readLinkAttempt("vincular: abc234")).toEqual({ code: "ABC234", explicit: true });
+    expect(readLinkAttempt("Vincular, ABC234")).toEqual({ code: "ABC234", explicit: true });
+  });
+
+  it("la palabra VINCULAR sin código legible también es un intento", () => {
+    // Quien escribe «vincular» y se come el código quería vincular. Decírselo
+    // vale más que dejar que el agente conteste otra cosa.
+    expect(readLinkAttempt("VINCULAR")).toEqual({ code: "", explicit: true });
+    expect(readLinkAttempt("quiero vincular mi numero")).toEqual({ code: "", explicit: true });
+  });
+
+  it("seis caracteres sueltos son un intento, pero NO explícito", () => {
+    // Puede ser un código, pero también una palabra normal. Si no canjea nada,
+    // se trata como conversación y no se le dice «código inválido».
+    expect(readLinkAttempt("ABC234")).toEqual({ code: "ABC234", explicit: false });
+    expect(readLinkAttempt("PANADE")).toEqual({ code: "PANADE", explicit: false });
+  });
+
+  it("una frase normal no es ningún intento", () => {
+    for (const texto of [
+      "Quiero montar una empresa de software",
+      "hola que tal",
+      "necesito ayuda con el modelo 036",
+      "",
+      null,
+      undefined,
+    ]) {
+      expect(readLinkAttempt(texto)).toBeNull();
+    }
+  });
+
+  it("el código real del panel se reconoce", () => {
+    expect(readLinkAttempt("VINCULAR FV8XC8")).toEqual({ code: "FV8XC8", explicit: true });
   });
 });

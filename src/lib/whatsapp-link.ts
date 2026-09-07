@@ -31,17 +31,43 @@ export function generateLinkCode(random: () => number = Math.random): string {
  * de seis letras: tiene que estar el prefijo, o el mensaje entero tiene que ser
  * el código y nada más.
  */
-export function parseLinkCode(text: string | null | undefined): string | null {
+export type LinkAttempt = {
+  code: string;
+  /**
+   * `true` cuando el mensaje lleva la palabra VINCULAR: entonces no hay duda de
+   * qué quería la persona, y si el código no vale hay que decírselo.
+   *
+   * `false` cuando el mensaje era sólo seis caracteres sueltos. Eso puede ser un
+   * código, pero también una palabra normal —«PANADE», «CAMBIO»—, así que si no
+   * canjea nada se trata como conversación y no como un código equivocado.
+   */
+  explicit: boolean;
+};
+
+export function readLinkAttempt(text: string | null | undefined): LinkAttempt | null {
   const limpio = String(text ?? "").trim().toUpperCase();
   if (!limpio) return null;
 
   const conPrefijo = limpio.match(
-    new RegExp(`${LINK_PREFIX}[\\s:_-]*([${ALPHABET}]{${LINK_CODE_LENGTH}})`),
+    new RegExp(`${LINK_PREFIX}[\\s:_.,-]*([${ALPHABET}]{${LINK_CODE_LENGTH}})`),
   );
-  if (conPrefijo) return conPrefijo[1] ?? null;
+  if (conPrefijo?.[1]) return { code: conPrefijo[1], explicit: true };
+
+  // La palabra VINCULAR sin código legible también es un intento: la persona
+  // quería vincular y se equivocó al copiarlo. Decírselo vale más que dejar que
+  // el agente conteste otra cosa.
+  if (new RegExp(`\\b${LINK_PREFIX}\\b`).test(limpio)) return { code: "", explicit: true };
 
   const suelto = limpio.match(new RegExp(`^([${ALPHABET}]{${LINK_CODE_LENGTH}})$`));
-  return suelto ? suelto[1] ?? null : null;
+  if (suelto?.[1]) return { code: suelto[1], explicit: false };
+
+  return null;
+}
+
+/** Compatibilidad: sólo el código, sin decir si era explícito. */
+export function parseLinkCode(text: string | null | undefined): string | null {
+  const intento = readLinkAttempt(text);
+  return intento && intento.code ? intento.code : null;
 }
 
 /** Muestra el número sin exponerlo entero. */

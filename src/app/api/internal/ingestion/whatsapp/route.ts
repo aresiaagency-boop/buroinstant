@@ -7,11 +7,14 @@ import { inboundMessageSchema, whatsappWebhookSchema } from "@/lib/schemas";
 import { verifyMachineBearer, verifyWebhookSignature } from "@/lib/security/hmac";
 import { checkEphemeralRateLimit } from "@/lib/security/rate-limit";
 import { normalizeWhatsAppPhone } from "@/lib/whatsapp";
-import { parseLinkCode } from "@/lib/whatsapp-link";
+import { LINK_PREFIX, readLinkAttempt } from "@/lib/whatsapp-link";
 import { consumeLinkCode } from "@/lib/whatsapp-link-repository";
 import { applyProfilePatch, type ProfilePatch } from "@/lib/project-profile";
 
 const service = new BusinessDataIngestionService();
+
+/** La dirección a la que se manda a la persona. Configurable, con un valor por defecto. */
+const APP_URL = process.env.APP_URL?.trim() || "https://buroinstant.vercel.app";
 
 export async function POST(request: Request) {
   const secret = process.env.N8N_WEBHOOK_SECRET;
@@ -73,33 +76,64 @@ export async function POST(request: Request) {
     returning id
   `;
   if (!inserted.length) {
-    return NextResponse.json({ status: "DUPLICATE_EVENT" }, { status: 200 });
+    // Ya contestado antes: `handled: true` para que el workflow no responda dos
+    // veces al mismo mensaje si Evolution lo reenvía.
+    return NextResponse.json({ status: "DUPLICATE_EVENT", handled: true }, { status: 200 });
   }
 
   // Antes que nada: ¿es el código de vinculación? Un número sin expediente que
   // manda un código válido pasa a tenerlo, y ese mismo mensaje ya no es una
   // consulta que haya que interpretar.
-  const linkCode = parseLinkCode(parsed.data.text);
-  if (linkCode) {
-    const linked = await consumeLinkCode(linkCode, phone).catch(() => null);
-    await sql`
-      update webhook_events set status = 'PROCESSED', processed_at = now()
-      where id = ${inserted[0].id}
-    `;
-    return NextResponse.json(
-      linked
-        ? {
-            status: "LINKED",
-            replyText:
-              "Listo, este número ya está vinculado con tu expediente de BUROINSTANT. Cuéntame qué empresa quieres crear.",
-          }
-        : {
-            status: "LINK_CODE_INVALID",
-            replyText:
-              "Ese código no vale: o ha caducado o ya se usó. Pide uno nuevo desde tu expediente en la web.",
-          },
-      { status: linked ? 200 : 409 },
-    );
+  const intento = readLinkAttempt(parsed.data.text);
+  if (intento) {
+    // Un fallo de base de datos NO es un código inválido. Decirle a la persona
+    // que su código no vale cuando lo que falló fue la base es mentirle, y
+    // además le hace pedir otro que fallará igual. Se devuelve 500 para que el
+    // workflow lo reintente.
+    let linked: Awaited<ReturnType<typeof consumeLinkCode>> = null;
+    if (intento.code) {
+      try {
+        linked = await consumeLinkCode(intento.code, phone);
+      } catch {
+        await sql`
+          update webhook_events set status = 'FAILED', processed_at = now()
+          where id = ${inserted[0].id}
+        `;
+        return NextResponse.json({ error: "LINK_LOOKUP_FAILED", handled: false }, { status: 500 });
+      }
+    }
+
+    if (linked) {
+      await sql`
+        update webhook_events set status = 'PROCESSED', processed_at = now()
+        where id = ${inserted[0].id}
+      `;
+      return NextResponse.json({
+        status: "LINKED",
+        handled: true,
+        replyText:
+          "Listo, este número ya está vinculado con tu expediente de BUROINSTANT. Cuéntame qué empresa quieres crear.",
+      });
+    }
+
+    // Sin prefijo era sólo una palabra de seis letras. No se responde «código
+    // inválido» a quien no estaba intentando vincular: sigue como conversación.
+    if (intento.explicit) {
+      await sql`
+        update webhook_events set status = 'PROCESSED', processed_at = now()
+        where id = ${inserted[0].id}
+      `;
+      // 200 a propósito: la petición se ha procesado bien y el motivo va en el
+      // cuerpo. Un 4xx haría fallar el nodo del workflow y la persona se
+      // quedaría sin respuesta, que es justo lo contrario de lo que hace falta.
+      return NextResponse.json({
+        status: "LINK_CODE_INVALID",
+        handled: true,
+        replyText: intento.code
+          ? `Ese código no vale: o ha caducado o ya se usó. Pide uno nuevo en tu expediente, en ${APP_URL}, y vuelve a escribirme ${LINK_PREFIX} y el código.`
+          : `Te falta el código. Escríbeme ${LINK_PREFIX} y los seis caracteres que te da tu expediente en ${APP_URL}.`,
+      });
+    }
   }
 
   const identity = await resolveWhatsAppIdentity(phone);
@@ -108,14 +142,16 @@ export async function POST(request: Request) {
       update webhook_events set status = 'NEEDS_IDENTITY', processed_at = now()
       where id = ${inserted[0].id}
     `;
-    return NextResponse.json(
-      {
-        status: "LINK_REQUIRED",
-        replyText:
-          "He recibido tu mensaje, pero este número todavía no está vinculado a ningún expediente. Entra en https://buroinstant.vercel.app, pide el código de vinculación y envíamelo por aquí.",
-      },
-      { status: 202 },
-    );
+    // También 200: el evento se ha procesado y la respuesta que toca dar está
+    // en el cuerpo. Este es el caso que más importa acertar — un número
+    // desconocido no debe acabar conversando con el agente como si nada.
+    return NextResponse.json({
+      status: "LINK_REQUIRED",
+      handled: true,
+      replyText:
+        `He recibido tu mensaje, pero este número todavía no está vinculado a ningún expediente. ` +
+        `Entra en ${APP_URL}, pide tu código de vinculación y escríbeme aquí ${LINK_PREFIX} y el código.`,
+    });
   }
 
   const message = inboundMessageSchema.parse({
@@ -176,8 +212,12 @@ export async function POST(request: Request) {
     }
   }
 
+  // `handled: false` es la señal para el workflow: este mensaje es conversación
+  // y le toca contestar al agente. Cuando es `true`, la respuesta ya está
+  // escrita aquí y el agente no debe abrir la boca.
   return NextResponse.json({
     status: result.requiresConfirmation ? "NEEDS_CONFIRMATION" : "APPLIED",
+    handled: false,
     extractedFields: result.extractedFields,
     contradictions: result.contradictions,
     replyText: result.suggestedNextQuestion,
