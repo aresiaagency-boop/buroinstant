@@ -243,3 +243,65 @@ no simplemente cortando por configuración.
 | `BAD_SIGNATURE` en la prueba buena | Los dos secretos no son idénticos |
 | 200 pero no llega el mensaje | El problema está entre n8n y Evolution: mira el nodo `Enviar por Evolution` en la ejecución |
 | `TIMESTAMP_OUT_OF_WINDOW` | El reloj del servidor va desviado más de 5 minutos |
+
+---
+
+## Aparte: por qué la ingesta de WhatsApp devuelve `INGESTION_NOT_CONFIGURED`
+
+Si el nodo `BUROINSTANT_PERSISTIR` del workflow de ingesta falla con
+**503 `INGESTION_NOT_CONFIGURED`**, no es un problema de n8n ni de Evolution:
+es que a BUROINSTANT le falta una variable en Vercel.
+
+La ruta de ingesta se niega a funcionar si falta cualquiera de estas tres:
+
+| Variable | Para qué |
+|---|---|
+| `DATABASE_URL` | Sin base de datos no hay dónde guardar |
+| `N8N_WEBHOOK_SECRET` | Sin secreto no se puede autenticar a n8n |
+| `EVOLUTION_API_INSTANCE` | Sin ella no se puede comprobar de qué instancia viene |
+
+Rechaza en bloque a propósito: aceptar mensajes a medias con la configuración
+incompleta sería peor que no aceptarlos.
+
+**Para saber cuál falta**, sin adivinar, abre:
+
+```
+https://buroinstant.vercel.app/api/health
+```
+
+Y mira `configuration`. Cada campo dice `configured` o `not_configured`.
+
+**Solución.** En Vercel → Settings → Environment Variables → Production:
+
+```
+EVOLUTION_API_INSTANCE=GESTOR_TRAMITES
+EVOLUTION_API_BASE_URL=https://gestor-tramites-evolution-api.7dklrk.easypanel.host
+```
+
+Y **redespliega**: Vercel sólo aplica variables nuevas en un despliegue nuevo.
+
+`EVOLUTION_API_INSTANCE` es la que desbloquea la ingesta. `EVOLUTION_API_BASE_URL`
+no hace falta para que funcione, pero sin ella la matriz de servicios del panel
+de administración no puede comprobar si Evolution responde.
+
+El valor tiene que coincidir **exactamente** con la instancia que manda
+Evolution, mayúsculas incluidas. Si no coincide, el error cambia a
+`INSTANCE_MISMATCH` y te dice los dos valores para que veas la diferencia.
+
+### Comprobado, no supuesto
+
+Reproducido en local con el mismo código de producción:
+
+| Situación | Respuesta |
+|---|---|
+| Sin `EVOLUTION_API_INSTANCE` | `503 INGESTION_NOT_CONFIGURED` — idéntico a producción |
+| Con la variable, mensaje real | `200` y extrae los campos: actividad aplicada, forma jurídica y socios como propuesta |
+| Con la variable, secreto equivocado | `401 INVALID_SIGNATURE` |
+| Con la variable, instancia mal escrita | `400 INSTANCE_MISMATCH`, diciendo los dos valores |
+
+### Si después sale `401 INVALID_SIGNATURE`
+
+Ya no falta configuración: es que el token de la credencial **Bearer Auth
+account** de n8n no coincide con `N8N_WEBHOOK_SECRET` de Vercel. Tienen que ser
+idénticos. Se corrige editando esa credencial en n8n (el lápiz junto a
+«Bearer Auth account» en el nodo).
