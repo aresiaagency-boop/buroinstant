@@ -1,4 +1,4 @@
-# La vinculación por WhatsApp: qué fallaba y qué falta
+# La vinculación por WhatsApp: qué fallaba y qué se ha hecho
 
 ## Lo que se vio
 
@@ -73,48 +73,68 @@ Comprobado contra el servidor construido y PostgreSQL real, el ciclo entero:
 | Mismo `messageId` repetido | 200 `DUPLICATE_EVENT`, sin texto |
 | Sin firma ni Bearer | 401 `INVALID_SIGNATURE` |
 
-## Lo que falta: recablear el workflow
+## El workflow, ya recableado
 
-Sin este cambio la corrección no llega a la persona, porque quien envía el
-mensaje es n8n.
+Aplicado y publicado en `INGESTA_BUROINSTANT` (`1ns7a4kGuoI4Wf57`), activo.
 
 **Antes**
 
 ```
 Code2 ─┬─► AI Agent ──► whatsapp_response
-       └─► BUROINSTANT_PERSISTIR
+       └─► BUROINSTANT_PERSISTIR        (y el agente lo llamaba otra vez)
 ```
 
-**Después**
+**Ahora**
 
 ```
-Code2 ──► BUROINSTANT_PERSISTIR ──► Switch «¿contesta la app?»
-                                      ├─ replyText con texto ─► whatsapp_response  ({{ $json.replyText }})
-                                      ├─ handled = true, sin texto ─► No Operation
-                                      └─ handled = false ─► AI Agent ─► whatsapp_response  ({{ $json.output }})
+Code2 ──► BUROINSTANT_PERSISTIR ─┬─(ok)──► RESPONDE_LA_APP
+                                 │            ├─ hay replyText ──► TEXTO_DE_LA_APP ──► whatsapp_response
+                                 │            ├─ handled, sin texto ──► SIN_RESPUESTA
+                                 │            └─ resto ──► AI Agent ──► whatsapp_response
+                                 └─(error)──► AVISO_DE_FALLO ──► whatsapp_response
 ```
 
-Tres detalles que importan:
+- `TEXTO_DE_LA_APP` copia `replyText` a `output`, que es lo que
+  `whatsapp_response` ya enviaba. Así ese nodo no se toca.
+- `BUROINSTANT_PERSISTIR` reintenta una vez y, si aun así falla, la persona
+  recibe *«Ahora mismo no puedo consultar tu expediente. Vuelve a escribirme en
+  unos minutos.»* — la verdad, en vez de dejar que el agente conteste como si el
+  sistema funcionara.
+- Se ha quitado la llamada duplicada `AI Agent → BUROINSTANT_PERSISTIR`: el
+  mensaje se persistía dos veces.
 
-1. `BUROINSTANT_PERSISTIR` tiene que quedar **antes** del agente, no en paralelo:
-   es quien sabe si el número está vinculado.
-2. El nodo debe tener **«Never Error»** desactivado para 5xx —un 500 tiene que
-   reintentarse, no colarse como si nada— y activado para nada más.
-3. `whatsapp_response` pasa a tener dos entradas. La rama de la aplicación envía
-   `{{ $json.replyText }}`; la del agente sigue enviando `{{ $json.output }}`.
+### Comprobado antes de dejarlo puesto
 
-Hoy no se ha podido aplicar: la sesión de n8n está caducada y responde 401 a la
-API. Entra en n8n y vuelvo a montarlo.
+Con un workflow temporal que sólo evaluaba el Switch —sin tocar WhatsApp— y que
+se borró después. Cada caso fue por donde debía:
 
-## Para probar con datos reales, cuando esté
+| Respuesta de la aplicación | Rama |
+|---|---|
+| `LINKED` con texto | contesta la app |
+| `LINK_CODE_INVALID` con texto | contesta la app |
+| `LINK_REQUIRED` con texto | contesta la app |
+| `DUPLICATE_EVENT`, sin texto | silencio |
+| `APPLIED`, `handled: false` | contesta el agente |
 
-1. En Vercel: `APP_URL=https://buroinstant.vercel.app` y
+## Para probar con datos reales
+
+1. **El push a `main`** — hay tres commits sin desplegar y producción todavía
+   responde con el contrato viejo. Desde tu terminal de Windows:
+   ```
+   git push origin feat/bloque-a-superadmin:main
+   ```
+   (El shell que uso no tiene tus credenciales de GitHub.)
+2. En Vercel: `APP_URL=https://buroinstant.vercel.app` y
    `BUROINSTANT_WHATSAPP_NUMBER=34661030625`.
-2. Comprobar que el token de la credencial «Bearer Auth account» de n8n es
-   exactamente `N8N_WEBHOOK_SECRET` de Vercel. Si no, la ruta responde 401 y
-   nada entra en el expediente aunque el agente conteste con normalidad.
-3. Desde el panel, pedir el código y usar el botón **Abrir WhatsApp con el
-   mensaje escrito**: evita equivocarse de carácter al copiarlo.
-4. Enviar. Debe contestar el texto de vinculación, no el agente, y el panel debe
+3. Comprobar que el token de la credencial «Bearer Auth account» de n8n es
+   exactamente `N8N_WEBHOOK_SECRET` de Vercel. Si no, la ruta responde 401,
+   ahora visible: la persona recibirá el aviso de fallo en vez de silencio.
+4. Desde el panel, pedir el código y usar **Abrir WhatsApp con el mensaje
+   escrito**: evita equivocarse de carácter al copiarlo.
+5. Enviar. Debe contestar el texto de vinculación —no el agente— y el panel
    pasar a «vinculado» al recargar.
-5. Escribir después cualquier cosa: ahí sí debe contestar el agente.
+6. Escribir después cualquier cosa: ahí sí debe contestar el agente.
+
+Nota: hasta el push, producción devuelve 409 para un código inválido, y el nodo
+lo tratará como error → llegará el aviso de fallo. Un código **correcto** ya
+funciona hoy, porque el 200 con `replyText` no ha cambiado.
