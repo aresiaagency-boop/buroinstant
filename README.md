@@ -50,7 +50,7 @@ npm run check
 | `DATABASE_URL` | PostgreSQL fuente de verdad | Sí | servidor |
 | `N8N_WEBHOOK_SECRET` | Firma HMAC o Bearer de máquina n8n → app | Sí para WhatsApp | servidor |
 | `EVOLUTION_API_INSTANCE` | Instancia permitida | Sí para WhatsApp | servidor |
-| `EVOLUTION_API_KEY` | Envío por Evolution | Sí para WhatsApp | servidor |
+| `EVOLUTION_API_BASE_URL` | Comprobar que Evolution responde (matriz de servicios) | No | servidor |
 
 Nunca crear una variante `NEXT_PUBLIC_*` de estas variables.
 

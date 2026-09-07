@@ -146,14 +146,36 @@ configurar**.
 3. EasyPanel → servicio **n8n** → **Environment** → pon la **nueva** clave en
    `EVOLUTION_API_KEY` → **Save** → **Restart**.
 
-### Antes de rotar, ten en cuenta
+### Dónde hay que pegar la clave nueva: en DOS sitios, y ya
 
-Cambiar esa clave **corta el acceso a todo lo que hable con Evolution con la
-clave vieja**. Repasa qué tienes apuntando ahí antes de tocarla; si hay algo
-más aparte de n8n, tendrás que actualizarlo también.
+Comprobado uno por uno en tu proyecto, no supuesto:
 
-La instancia de WhatsApp **no se desvincula** por rotar la clave: el QR y la
-sesión no dependen de ella. Pero compruébalo enviándote un mensaje después.
+| Sitio | ¿Hay que pegarla? | Por qué |
+|---|---|---|
+| Evolution → `AUTHENTICATION_API_KEY` | **Sí** | Es el origen: define cuál es la clave válida |
+| n8n → `EVOLUTION_API_KEY` | **Sí** | `AVISOS_BUROINSTANT` la lee del entorno para enviar |
+| n8n → workflow `INGESTA_BUROINSTANT` | **No** | La recibe dentro de cada webhook; se actualiza sola |
+| n8n → credenciales guardadas | **No** | Las cuatro que hay son Postgres, OpenAI, Redis y Bearer Auth. Ninguna es de Evolution |
+| Dentro de cualquier workflow | **No** | Ninguno la lleva escrita a mano. Comprobados los tres |
+| Vercel / BUROINSTANT | **No** | La app **no envía** por Evolution: sólo comprueba que responde y valida la instancia del evento entrante. Nunca lee ninguna clave suya |
+
+Es decir: **Evolution y n8n. Nada más.**
+
+Ojo con Vercel: en el README y en `.env.example` figuraba un
+`EVOLUTION_API_KEY` como si la app lo necesitara. **No lo necesita** — no hay
+una sola línea de código que lo lea. Estaba de más y se ha quitado. Pegar ahí
+la clave sería dejar un secreto expuesto en un sitio donde no sirve para nada,
+que es lo peor de los dos mundos.
+
+### Lo que sí cambia al rotar
+
+- **El panel de Evolution te pedirá la clave nueva** la próxima vez que entres.
+  La clave global es también la que da acceso al gestor.
+- **Se corta el acceso a cualquier otra cosa que llame a Evolution con la clave
+  vieja.** En este proyecto sólo es n8n, pero si tienes algo tuyo aparte
+  —un script, Postman, otra automatización— tendrás que actualizarlo.
+- **La instancia de WhatsApp NO se desvincula.** El QR y la sesión no dependen
+  de la clave. Aun así, compruébalo enviándote un mensaje después.
 
 ### Lo que queda pendiente aparte
 
