@@ -100,7 +100,7 @@ describe("cálculo de plazos", () => {
     expect(segundo?.shiftNote).toContain("festivos autonómicos y locales no están aplicados");
   });
 
-  it("ninguna fecha calculada cae en sábado o domingo", () => {
+  it("ninguna fecha trasladable cae en sábado o domingo", () => {
     const ocurrencias = upcomingObligations({
       profile: { ...SOCIEDAD, hasPremises: true, willHireWorkers: true },
       from: "2026-01-01",
@@ -108,9 +108,25 @@ describe("cálculo de plazos", () => {
     });
     for (const o of ocurrencias) {
       if (!o.dueDate) continue;
+      // Las cuotas mensuales de Seguridad Social vencen «dentro del mismo mes»:
+      // trasladarlas al lunes las empujaría al mes siguiente y contradiría a la
+      // propia fuente. Por eso no se trasladan, y por eso quedan fuera de esta
+      // comprobación en vez de forzar la regla a que encaje.
+      if (o.periodicity === "MENSUAL") continue;
       const dia = new Date(`${o.dueDate}T00:00:00Z`).getUTCDay();
       expect([1, 2, 3, 4, 5], `${o.code} cae en fin de semana: ${o.dueDate}`).toContain(dia);
     }
+  });
+
+  it("una cuota mensual que cae en fin de semana NO se traslada, y se dice", () => {
+    const enero = upcomingObligations({
+      profile: { legalForm: "SLU" as const },
+      from: "2026-01-01",
+      horizonDays: 40,
+    }).find((o) => o.obligationCode === "SS_ADMINISTRADOR");
+    // 31 de enero de 2026 es sábado. Se mantiene: el plazo es el mes, no el día hábil.
+    expect(enero?.dueDate).toBe("2026-01-31");
+    expect(enero?.windowRule).toContain("mismo mes");
   });
 
   it("todas las fechas caen dentro de la ventana pedida", () => {
@@ -268,5 +284,57 @@ describe("correcciones detectadas con datos reales", () => {
     expect(responsables.has("EMPRESA")).toBe(true);
     expect(responsables.has("ADMINISTRADOR")).toBe(true);
     expect(responsables.has("AUTONOMO")).toBe(false);
+  });
+});
+
+describe("la cotización del administrador en una sociedad", () => {
+  const DESDE = "2026-10-01";
+
+  it("aparece en el calendario de una S.L.U.", () => {
+    // Antes no aparecía en el de ninguna sociedad: la única cuota mensual del
+    // catálogo se aplicaba sólo a personas físicas, así que quien creaba una
+    // S.L. se enteraba del recibo por el banco.
+    const codigos = upcomingObligations({
+      profile: { legalForm: "SLU" as const },
+      from: DESDE,
+      horizonDays: 120,
+    }).map((o) => o.obligationCode);
+    expect(codigos).toContain("SS_ADMINISTRADOR");
+  });
+
+  it("la responsable es la persona administradora, no la empresa", () => {
+    const cuota = upcomingObligations({
+      profile: { legalForm: "SLU" as const },
+      from: DESDE,
+      horizonDays: 120,
+    }).find((o) => o.obligationCode === "SS_ADMINISTRADOR");
+    expect(cuota?.responsible).toBe("ADMINISTRADOR");
+  });
+
+  it("no se duplica con la cuota del autónomo persona física", () => {
+    const deSociedad = upcomingObligations({
+      profile: { legalForm: "SLU" as const },
+      from: DESDE,
+      horizonDays: 120,
+    }).map((o) => o.obligationCode);
+    expect(deSociedad).not.toContain("TGSS_RETA");
+
+    const dePersona = upcomingObligations({ profile: AUTONOMO, from: DESDE, horizonDays: 120 }).map(
+      (o) => o.obligationCode,
+    );
+    expect(dePersona).toContain("TGSS_RETA");
+    expect(dePersona).not.toContain("SS_ADMINISTRADOR");
+  });
+
+  it("vence dentro del mismo mes y lleva fecha, que es lo que permite avisar", () => {
+    const cuotas = upcomingObligations({
+      profile: { legalForm: "SLU" as const },
+      from: DESDE,
+      horizonDays: 100,
+    }).filter((o) => o.obligationCode === "SS_ADMINISTRADOR");
+    expect(cuotas.length).toBeGreaterThan(0);
+    for (const cuota of cuotas) {
+      expect(cuota.dueDate).toBeTruthy();
+    }
   });
 });

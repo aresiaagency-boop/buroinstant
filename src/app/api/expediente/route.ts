@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getCurrentActor } from "@/lib/auth";
 import { isDatabaseConfigured, redactDatabaseError } from "@/lib/db";
 import { readLatestProject, readPendingProposals, saveProjectProfile } from "@/lib/project-profile";
-import { ProjectAccessError } from "@/lib/task-repository";
+import { ProjectAccessError, reconcileTasks } from "@/lib/task-repository";
 
 /**
  * El expediente del panel.
@@ -75,7 +75,19 @@ export async function PATCH(request: Request) {
         ...(forma !== undefined ? { preferred_legal_form: forma === "SIN_DECIDIR" ? null : forma } : {}),
       },
     });
-    return NextResponse.json({ project, orbEvent: "DATA_APPLIED" });
+    // El perfil acaba de cambiar: el itinerario tiene que cambiar con él. Sin
+    // esto quedaba congelado con el perfil de la primera vez —comprobado en un
+    // expediente real: con el local corregido a «no», la licencia de actividad
+    // municipal seguía en la lista—. Si la reconciliación falla, el dato queda
+    // guardado igual: perder el cambio de perfil sería peor.
+    let itinerario: Awaited<ReturnType<typeof reconcileTasks>> | null = null;
+    try {
+      itinerario = await reconcileTasks(actor, project.id);
+    } catch {
+      itinerario = null;
+    }
+
+    return NextResponse.json({ project, itinerario, orbEvent: "DATA_APPLIED" });
   } catch (error) {
     if (error instanceof ProjectAccessError) {
       return NextResponse.json({ error: "PROJECT_NOT_FOUND" }, { status: 404 });

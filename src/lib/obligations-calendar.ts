@@ -181,7 +181,7 @@ export const OBLIGATION_CATALOG: ObligationDefinition[] = [
   {
     code: "TGSS_RETA",
     model: null,
-    title: "Cuota de autónomos (RETA)",
+    title: "Cuota de autónomo (RETA)",
     detail:
       "La cuota de cada mes se ingresa dentro de ese mismo mes. Con domiciliación bancaria la Tesorería practica el cargo; conviene comprobar que ha entrado.",
     authority: "Tesorería General de la Seguridad Social",
@@ -191,6 +191,28 @@ export const OBLIGATION_CATALOG: ObligationDefinition[] = [
     windowRule: "Dentro del mismo mes al que corresponde la cuota.",
     schedule: { kind: "MONTHLY_SAME_MONTH" },
     applies: (profile) => profile.legalForm === "AUTONOMO",
+  },
+  {
+    code: "SS_ADMINISTRADOR",
+    model: null,
+    title: "Cotización del administrador en Seguridad Social",
+    detail:
+      "La sociedad es una S.L.; quien cotiza es la persona que la administra y trabaja en ella. " +
+      "Teniendo control efectivo sobre la sociedad y ejerciendo funciones de dirección o gerencia, " +
+      "la Seguridad Social la encuadra y hay cuota cada mes, que se ingresa dentro de ese mismo mes. " +
+      "Con domiciliación bancaria la Tesorería practica el cargo; conviene comprobar que ha entrado.",
+    authority: "Tesorería General de la Seguridad Social",
+    periodicity: "MENSUAL",
+    responsible: "ADMINISTRADOR",
+    factKey: "PLAZO_CUOTA_RETA",
+    windowRule: "Dentro del mismo mes al que corresponde la cuota.",
+    schedule: { kind: "MONTHLY_SAME_MONTH" },
+    // No es la obligación del autónomo persona física con otro nombre: se aplica
+    // por un motivo distinto —administrar una sociedad con control efectivo— y la
+    // responsable es la persona administradora, no la empresa. Antes esta cuota no
+    // aparecía en el calendario de ninguna sociedad, y es un pago mensual: quien
+    // creaba una S.L. se enteraba por el banco.
+    applies: (profile) => isCompany(profile.legalForm),
   },
   {
     code: "RETENCIONES_190",
