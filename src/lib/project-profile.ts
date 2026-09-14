@@ -177,6 +177,28 @@ export async function applyProfilePatch(input: {
   const sql = db();
 
   let projectId = input.projectId;
+
+  /*
+   * Sin `projectId`, antes se creaba un expediente nuevo sin mirar si ya había
+   * uno. Comprobado en producción con el expediente real de A.R.E.S.: una
+   * llamada que sólo reguardaba la forma jurídica abrió un segundo expediente
+   * vacío, «Mi empresa», que además pasó a ser el más reciente y desplazó al
+   * verdadero en el panel. Todo el trabajo seguía ahí, pero dejaba de verse.
+   *
+   * Un expediente se abre cuando no hay ninguno. Si ya hay uno del mismo
+   * workspace, el cambio va a ése: nadie que corrige un dato quiere empezar de
+   * cero, y un segundo expediente silencioso es peor que un error.
+   */
+  if (!projectId) {
+    const [abierto] = await sql<Array<{ id: string }>>`
+      select id from business_projects
+      where workspace_id = ${workspaceId}
+      order by updated_at desc
+      limit 1
+    `;
+    if (abierto) projectId = abierto.id;
+  }
+
   if (!projectId) {
     const descripcion = input.patch.business_description?.trim();
     const [created] = await sql<Array<{ id: string }>>`

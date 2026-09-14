@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import { db, isDatabaseConfigured } from "@/lib/db";
 import { upcomingObligations } from "@/lib/obligations-calendar";
-import { readProjectSnapshot, saveProjectProfile } from "@/lib/project-profile";
+import { readLatestProject, readProjectSnapshot, saveProjectProfile } from "@/lib/project-profile";
 import { listTasks, reconcileTasks, syncTasks } from "@/lib/task-repository";
 import type { Actor } from "@/types/domain";
 
@@ -16,10 +16,21 @@ import type { Actor } from "@/types/domain";
 const enabled = isDatabaseConfigured();
 const suite = enabled ? describe : describe.skip;
 
+/**
+ * Identidad distinta en cada ejecución.
+ *
+ * Antes no hacía falta: un cambio sin `projectId` abría expediente nuevo cada
+ * vez, así que cada pasada empezaba limpia por accidente. Arreglado ese fallo
+ * —ahora el cambio cae en el expediente que ya existe—, dos pasadas seguidas
+ * contra la misma base compartían estado y la segunda fallaba. La prueba se
+ * aísla ella, que es su trabajo, no el del producto.
+ */
+const RUN = Date.now();
+
 const dueno: Actor = {
   mode: "oauth",
-  userId: "reconcilia-dueno",
-  email: "reconcilia@example.test",
+  userId: `reconcilia-dueno-${RUN}`,
+  email: `reconcilia-${RUN}@example.test`,
   name: "Reconciliación",
 };
 
@@ -155,5 +166,53 @@ suite("la fecha de aprobación de las cuentas se guarda y fija el depósito", ()
     await saveProjectProfile({ actor: dueno, projectId, patch: { accounts_approval_date: null } });
     const snapshot = await readProjectSnapshot(dueno, projectId);
     expect(snapshot.profile.accounts_approval_date).toBeUndefined();
+  });
+});
+
+/**
+ * Un cambio sin `projectId` no puede abrir un expediente nuevo si ya hay uno.
+ *
+ * Pasó en producción, con el expediente real de A.R.E.S.: una llamada que sólo
+ * reguardaba la forma jurídica creó un segundo expediente vacío que además pasó
+ * a ser el más reciente, y el panel dejó de mostrar el verdadero.
+ */
+suite("un cambio sin expediente indicado va al que ya existe", () => {
+  const solo: Actor = {
+    mode: "oauth",
+    userId: `expediente-unico-${RUN}`,
+    email: `unico-${RUN}@example.test`,
+    name: "Expediente único",
+  };
+
+  it("el primer dato abre expediente", async () => {
+    const snapshot = await saveProjectProfile({
+      actor: solo,
+      patch: { business_description: "Panadería de barrio" },
+    });
+    expect(snapshot.id).toBeTruthy();
+  });
+
+  it("el segundo cambio, sin projectId, cae en el mismo expediente", async () => {
+    const primero = await readLatestProject(solo);
+    const segundo = await saveProjectProfile({ actor: solo, patch: { preferred_legal_form: "SL" } });
+    expect(segundo.id).toBe(primero?.id);
+  });
+
+  it("y no queda un segundo expediente detrás", async () => {
+    const sql = db();
+    const filas = await sql<Array<{ count: string }>>`
+      select count(*)::text as count
+      from business_projects p
+      join workspace_members m on m.workspace_id = p.workspace_id
+      join users u on u.id = m.user_id
+      where u.oauth_subject = ${solo.userId}
+    `;
+    expect(Number(filas[0].count)).toBe(1);
+  });
+
+  it("el expediente conserva lo que ya tenía", async () => {
+    const actual = await readLatestProject(solo);
+    expect(actual?.profile.business_description).toBe("Panadería de barrio");
+    expect(actual?.profile.preferred_legal_form).toBe("SL");
   });
 });
