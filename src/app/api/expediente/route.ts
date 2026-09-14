@@ -26,9 +26,17 @@ const patchSchema = z
     number_of_founders: z.number().int().min(1).max(20).optional(),
     municipality: z.string().trim().min(2).max(160).optional(),
     physical_premises: z.boolean().optional(),
+    // La fecha que declara el 036. Marca desde cuándo corren los plazos, así
+    // que el calendario deja de ofrecer vencimientos anteriores a la empresa.
+    activity_start_date: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "Formato AAAA-MM-DD")
+      .nullable()
+      .optional(),
   })
   .refine(
     (value) =>
+      value.activity_start_date !== undefined ||
       value.business_description !== undefined ||
       value.preferred_legal_form !== undefined ||
       value.number_of_founders !== undefined ||

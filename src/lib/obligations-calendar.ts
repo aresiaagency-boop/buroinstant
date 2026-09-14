@@ -361,6 +361,19 @@ export type CalendarInput = {
   from?: string;
   /** Cuántos días hacia adelante. Por defecto 365. */
   horizonDays?: number;
+  /**
+   * Fecha de inicio de actividad declarada en el modelo 036, en ISO.
+   *
+   * Sin ella el calendario muestra vencimientos de períodos en los que la
+   * empresa todavía no existía. Comprobado con A.R.E.S.: constituyéndose en
+   * septiembre, el calendario ofrecía el IVA del tercer trimestre de 2026. Un
+   * vencimiento falso entrena a la gente a ignorar los avisos, y entonces el
+   * verdadero tampoco se mira.
+   *
+   * Si no se pasa, no se filtra nada: es mejor mostrar de más que esconder una
+   * obligación de una empresa que ya venía funcionando antes de usar la app.
+   */
+  activityStart?: string;
 };
 
 /**
@@ -370,6 +383,7 @@ export type CalendarInput = {
 export function upcomingObligations(input: CalendarInput): ObligationOccurrence[] {
   const profile = { ...DEFAULT_CALENDAR_PROFILE, ...input.profile } as ProjectProfile;
   const from = input.from ?? new Date().toISOString().slice(0, 10);
+  const inicioActividad = input.activityStart?.slice(0, 10);
   const horizon = addDays(from, input.horizonDays ?? 365);
   const years = [Number(from.slice(0, 4)) - 1, Number(from.slice(0, 4)), Number(horizon.slice(0, 4))];
   const uniqueYears = [...new Set(years)];
@@ -431,6 +445,8 @@ export function upcomingObligations(input: CalendarInput): ObligationOccurrence[
           ? shiftOffWeekend(nominal)
           : { date: nominal, shifted: false };
         if (date < from || date > horizon) continue;
+        // Un plazo anterior al inicio de actividad no es de esta empresa.
+        if (inicioActividad && date < inicioActividad) continue;
         const dueDate: string = date;
         const shiftNote = shifted ? AVISO_FESTIVOS : undefined;
 

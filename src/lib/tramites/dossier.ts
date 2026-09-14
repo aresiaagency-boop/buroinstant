@@ -88,6 +88,10 @@ const DATOS: Record<ProfileKey, { etiqueta: string; comoSeConsigue: string }> = 
     etiqueta: "Local físico",
     comoSeConsigue: "Responde si vas a tener local abierto al público o no.",
   },
+  activity_start_date: {
+    etiqueta: "Fecha de inicio de actividad",
+    comoSeConsigue: "La que declares en el modelo 036. Marca desde cuándo corren tus plazos.",
+  },
 };
 
 /**
@@ -109,6 +113,7 @@ const DATOS_POR_TRAMITE: Record<string, ProfileKey[]> = {
   NIF_PROVISIONAL: ["preferred_legal_form", "business_description"],
   NIF_DEFINITIVO: ["preferred_legal_form"],
   CENSAL: ["business_description", "municipality", "preferred_legal_form"],
+  CENSAL_036: ["business_description", "municipality", "preferred_legal_form", "activity_start_date"],
   SS_INSCRIPCION: ["municipality"],
   RETA: ["business_description", "municipality"],
   LOCAL_LICENCIA: ["municipality", "physical_premises", "business_description"],

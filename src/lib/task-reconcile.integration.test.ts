@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { db, isDatabaseConfigured } from "@/lib/db";
-import { saveProjectProfile } from "@/lib/project-profile";
+import { readProjectSnapshot, saveProjectProfile } from "@/lib/project-profile";
 import { listTasks, reconcileTasks, syncTasks } from "@/lib/task-repository";
 import type { Actor } from "@/types/domain";
 
@@ -102,5 +102,22 @@ suite("el itinerario se concilia cuando cambia el perfil", () => {
     expect(activas).not.toContain("COMPANY_NAME");
     expect(activas).not.toContain("NOTARY");
     expect(resultado.desactivados.length).toBeGreaterThan(0);
+  });
+});
+
+suite("la fecha de inicio de actividad se guarda y filtra el calendario", () => {
+  it("se guarda y se lee tal cual", async () => {
+    const snapshot = await saveProjectProfile({
+      actor: dueno,
+      projectId,
+      patch: { activity_start_date: "2026-11-01" },
+    });
+    expect(snapshot.profile.activity_start_date).toBe("2026-11-01");
+  });
+
+  it("se puede borrar, y entonces el calendario vuelve a no filtrar", async () => {
+    await saveProjectProfile({ actor: dueno, projectId, patch: { activity_start_date: null } });
+    const snapshot = await readProjectSnapshot(dueno, projectId);
+    expect(snapshot.profile.activity_start_date).toBeUndefined();
   });
 });

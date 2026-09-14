@@ -59,15 +59,30 @@ export async function GET(request: Request) {
     }
 
     const from = new Date().toISOString().slice(0, 10);
+    // La fecha del 036 marca desde cuándo corren los plazos de esta empresa.
+    // Sin ella no se filtra: esconder una obligación de quien ya venía
+    // funcionando sería peor que mostrar una de más.
+    const inicioActividad = (project.profile as Record<string, unknown>).activity_start_date;
+    const activityStart = typeof inicioActividad === "string" ? inicioActividad : undefined;
+
     const ocurrencias = upcomingObligations({
       profile: profileFromSnapshot(project.profile as Record<string, unknown>),
       from,
       horizonDays,
+      activityStart,
     });
 
     return NextResponse.json({
       project: { id: project.id, name: project.name },
       from,
+      activityStart: activityStart ?? null,
+      ...(activityStart
+        ? {}
+        : {
+            aviso:
+              "Todavía no has declarado la fecha de inicio de actividad, así que el calendario " +
+              "puede mostrar plazos de períodos anteriores a tu empresa. Declárala y se ajusta solo.",
+          }),
       horizonDays,
       // La forma jurídica manda en el calendario: si no está decidida, se dice.
       legalFormDecided: Boolean((project.profile as Record<string, unknown>).preferred_legal_form),

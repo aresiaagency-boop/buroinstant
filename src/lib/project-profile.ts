@@ -26,6 +26,7 @@ export const PROFILE_KEYS = [
   "number_of_founders",
   "municipality",
   "physical_premises",
+  "activity_start_date",
 ] as const;
 
 export type ProfileKey = (typeof PROFILE_KEYS)[number];
@@ -60,9 +61,16 @@ export async function readSnapshotById(projectId: string): Promise<ProjectSnapsh
   const sql = db();
 
   const [project] = await sql<
-    Array<{ id: string; name: string; case_stage: string; business_description: string; preferred_legal_form: string | null }>
+    Array<{
+      id: string;
+      name: string;
+      case_stage: string;
+      business_description: string;
+      preferred_legal_form: string | null;
+      activity_start_date: Date | string | null;
+    }>
   >`
-    select id, name, case_stage, business_description, preferred_legal_form
+    select id, name, case_stage, business_description, preferred_legal_form, activity_start_date
     from business_projects where id = ${projectId} limit 1
   `;
   if (!project) throw new ProjectAccessError();
@@ -89,6 +97,14 @@ export async function readSnapshotById(projectId: string): Promise<ProjectSnapsh
       municipality,
       // Sin ninguna localización todavía no se sabe: no es lo mismo que "no".
       physical_premises: locations.length > 0 ? hasActivityAddress : undefined,
+      // La fecha que declara el 036. Mientras no exista, el calendario no filtra.
+      activity_start_date: project.activity_start_date
+        ? String(
+            project.activity_start_date instanceof Date
+              ? project.activity_start_date.toISOString().slice(0, 10)
+              : project.activity_start_date,
+          ).slice(0, 10)
+        : undefined,
     },
   };
 }
@@ -115,6 +131,7 @@ export type ProfilePatch = Partial<{
   number_of_founders: number;
   municipality: string;
   physical_premises: boolean;
+  activity_start_date: string | null;
 }>;
 
 /**
@@ -207,6 +224,14 @@ export async function applyProfilePatch(input: {
         values (${workspaceId}, ${projectId}, ${`Socio ${indice + 1}`}, 'NATURAL_PERSON', ${userId})
       `;
     }
+  }
+
+  if (patch.activity_start_date !== undefined) {
+    await sql`
+      update business_projects
+      set activity_start_date = ${patch.activity_start_date}
+      where id = ${projectId}
+    `;
   }
 
   if (patch.municipality !== undefined || patch.physical_premises !== undefined) {

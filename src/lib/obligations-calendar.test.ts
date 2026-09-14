@@ -338,3 +338,49 @@ describe("la cotización del administrador en una sociedad", () => {
     }
   });
 });
+
+describe("el calendario no empieza antes que la empresa", () => {
+  const SOCIEDAD_SLU = { legalForm: "SLU" as const };
+
+  it("sin fecha de inicio declarada, no filtra nada", () => {
+    // Esconder una obligación de quien ya venía funcionando antes de usar la
+    // app sería peor que mostrar una de más. Mientras no se declare, se ve todo.
+    const todas = upcomingObligations({ profile: SOCIEDAD_SLU, from: "2026-09-14", horizonDays: 120 });
+    expect(todas.length).toBeGreaterThan(0);
+    expect(todas.some((o) => o.dueDate && o.dueDate < "2026-11-01")).toBe(true);
+  });
+
+  it("con fecha de inicio, desaparecen los vencimientos anteriores", () => {
+    // El caso real de A.R.E.S.: constituyéndose en otoño, el calendario ofrecía
+    // el IVA del tercer trimestre de 2026, cuando la empresa no existía.
+    const filtradas = upcomingObligations({
+      profile: SOCIEDAD_SLU,
+      from: "2026-09-14",
+      horizonDays: 120,
+      activityStart: "2026-11-01",
+    });
+    for (const o of filtradas) {
+      if (!o.dueDate) continue;
+      expect(o.dueDate >= "2026-11-01").toBe(true);
+    }
+  });
+
+  it("filtrar quita vencimientos, nunca los añade", () => {
+    const base = { profile: SOCIEDAD_SLU, from: "2026-09-14", horizonDays: 400 };
+    const sinFecha = upcomingObligations(base);
+    const conFecha = upcomingObligations({ ...base, activityStart: "2026-11-01" });
+    expect(conFecha.length).toBeLessThanOrEqual(sinFecha.length);
+    const codigosBase = new Set(sinFecha.map((o) => o.code));
+    for (const o of conFecha) expect(codigosBase.has(o.code)).toBe(true);
+  });
+
+  it("una obligación sin fecha sobrevive al filtro: ya avisa de que hay que comprobarla", () => {
+    const conFecha = upcomingObligations({
+      profile: SOCIEDAD_SLU,
+      from: "2026-09-14",
+      horizonDays: 400,
+      activityStart: "2026-11-01",
+    });
+    expect(conFecha.some((o) => o.dueDate === null)).toBe(true);
+  });
+});
