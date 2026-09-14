@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { db, isDatabaseConfigured } from "@/lib/db";
+import { upcomingObligations } from "@/lib/obligations-calendar";
 import { readProjectSnapshot, saveProjectProfile } from "@/lib/project-profile";
 import { listTasks, reconcileTasks, syncTasks } from "@/lib/task-repository";
 import type { Actor } from "@/types/domain";
@@ -119,5 +120,40 @@ suite("la fecha de inicio de actividad se guarda y filtra el calendario", () => 
     await saveProjectProfile({ actor: dueno, projectId, patch: { activity_start_date: null } });
     const snapshot = await readProjectSnapshot(dueno, projectId);
     expect(snapshot.profile.activity_start_date).toBeUndefined();
+  });
+});
+
+/**
+ * La fecha de aprobación de las cuentas por la junta. Sin ella, el depósito en
+ * el Registro sólo puede mostrarse como límite legal exterior; con ella pasa a
+ * ser el plazo de esta sociedad y el aviso se calcula sobre él.
+ */
+suite("la fecha de aprobación de las cuentas se guarda y fija el depósito", () => {
+  it("se guarda y se lee tal cual", async () => {
+    const snapshot = await saveProjectProfile({
+      actor: dueno,
+      projectId,
+      patch: { preferred_legal_form: "SL", accounts_approval_date: "2027-03-15" },
+    });
+    expect(snapshot.profile.accounts_approval_date).toBe("2027-03-15");
+  });
+
+  it("guardada, el depósito deja de ser un límite y pasa a ser una fecha propia", async () => {
+    const snapshot = await readProjectSnapshot(dueno, projectId);
+    const cuentas = upcomingObligations({
+      profile: { legalForm: "SL" },
+      from: "2027-01-01",
+      horizonDays: 300,
+      accountsApproval: snapshot.profile.accounts_approval_date as string,
+    }).find((o) => o.obligationCode === "CUENTAS_ANUALES");
+
+    expect(cuentas?.dueDate).toBe("2027-04-15");
+    expect(cuentas?.limitNote).toBeUndefined();
+  });
+
+  it("se puede borrar, y entonces vuelve el límite exterior", async () => {
+    await saveProjectProfile({ actor: dueno, projectId, patch: { accounts_approval_date: null } });
+    const snapshot = await readProjectSnapshot(dueno, projectId);
+    expect(snapshot.profile.accounts_approval_date).toBeUndefined();
   });
 });

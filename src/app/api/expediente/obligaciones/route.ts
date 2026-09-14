@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getCurrentActor } from "@/lib/auth";
 import { isDatabaseConfigured, redactDatabaseError } from "@/lib/db";
-import { upcomingObligations, urgencyOf } from "@/lib/obligations-calendar";
+import { splitByDate, upcomingObligations, urgencyOf } from "@/lib/obligations-calendar";
 import { readLatestProject } from "@/lib/project-profile";
 import type { ProjectProfile } from "@/lib/task-engine";
 import { INFORMATIONAL_FOOTER } from "@/lib/regulatory-facts";
@@ -16,6 +16,11 @@ import { INFORMATIONAL_FOOTER } from "@/lib/regulatory-facts";
  *
  * No inventa fechas: una obligación cuyo plazo no está confirmado sale sin
  * fecha y con el aviso de qué falta comprobar.
+ *
+ * Y las devuelve en dos listas separadas a propósito. El sistema de avisos
+ * calcula los diez, tres y un día antes sobre una fecha; sin fecha no avisa. Con
+ * las dos mezcladas, una obligación sin fecha parecía tan vigilada como las
+ * demás y no lo estaba. Aparte, se ve de quién responde cada una.
  */
 
 export const runtime = "nodejs";
@@ -64,13 +69,20 @@ export async function GET(request: Request) {
     // funcionando sería peor que mostrar una de más.
     const inicioActividad = (project.profile as Record<string, unknown>).activity_start_date;
     const activityStart = typeof inicioActividad === "string" ? inicioActividad : undefined;
+    // Con la fecha de aprobación de la junta, el depósito de cuentas deja de
+    // ser un límite legal y pasa a ser el plazo de esta sociedad.
+    const aprobacion = (project.profile as Record<string, unknown>).accounts_approval_date;
+    const accountsApproval = typeof aprobacion === "string" ? aprobacion : undefined;
 
     const ocurrencias = upcomingObligations({
       profile: profileFromSnapshot(project.profile as Record<string, unknown>),
       from,
       horizonDays,
       activityStart,
+      accountsApproval,
     });
+    const { conFecha, sinFecha } = splitByDate(ocurrencias);
+    const conUrgencia = (item: (typeof ocurrencias)[number]) => ({ ...item, urgency: urgencyOf(item, from) });
 
     return NextResponse.json({
       project: { id: project.id, name: project.name },
@@ -84,9 +96,19 @@ export async function GET(request: Request) {
               "puede mostrar plazos de períodos anteriores a tu empresa. Declárala y se ajusta solo.",
           }),
       horizonDays,
+      accountsApproval: accountsApproval ?? null,
       // La forma jurídica manda en el calendario: si no está decidida, se dice.
       legalFormDecided: Boolean((project.profile as Record<string, unknown>).preferred_legal_form),
-      obligations: ocurrencias.map((item) => ({ ...item, urgency: urgencyOf(item, from) })),
+      // `obligations` mantiene la lista completa para no romper a quien ya la
+      // leía; `conFecha` y `sinFecha` son la separación que importa.
+      obligations: ocurrencias.map(conUrgencia),
+      conFecha: conFecha.map(conUrgencia),
+      sinFecha: sinFecha.map(conUrgencia),
+      sinFechaAviso:
+        sinFecha.length > 0
+          ? "Estas obligaciones no tienen fecha cerrada, así que BUROINSTANT no puede avisarte de ellas. " +
+            "Compruébalas tú en la sede oficial enlazada."
+          : null,
       footer: INFORMATIONAL_FOOTER,
     });
   } catch (error) {

@@ -48,6 +48,14 @@ export type ObligationOccurrence = {
   pendingVerification?: string;
   /** Presente cuando la fecha se ha movido por caer en fin de semana. */
   shiftNote?: string;
+  /**
+   * Presente cuando la fecha es el límite legal exterior y no la fecha propia
+   * de esta empresa. Un límite sólo puede cumplirse antes, nunca después: quien
+   * lo lea tiene que saber que su plazo real puede haber terminado ya.
+   */
+  limitNote?: string;
+  /** Presente cuando la fecha se ha calculado sobre un dato del expediente. */
+  anchorNote?: string;
 };
 
 type Schedule =
@@ -69,6 +77,18 @@ type ObligationDefinition = {
   windowRule: string;
   schedule: Schedule;
   applies: (profile: ProjectProfile) => boolean;
+  /**
+   * La fecha que produce el calendario es el límite legal exterior, no la fecha
+   * de esta empresa. Se dice con estas palabras en cada ocurrencia, y el
+   * vencimiento NO se traslada a lunes: mover un límite hacia adelante lo
+   * convertiría en una fecha que llega tarde.
+   */
+  outerLimit?: string;
+  /**
+   * Si el expediente guarda este dato, la fecha real se cuenta desde él y deja
+   * de usarse el límite exterior.
+   */
+  anchoredOn?: "ACCOUNTS_APPROVAL";
 };
 
 const isCompany = (form: LegalForm) => form !== null && form !== "AUTONOMO";
@@ -219,27 +239,62 @@ export const OBLIGATION_CATALOG: ObligationDefinition[] = [
     model: "190",
     title: "Resumen anual de retenciones",
     detail:
-      "Resume las retenciones de todo el ejercicio declaradas en el modelo 111. Se presenta en enero.",
+      "Resume las retenciones de todo el ejercicio declaradas en el modelo 111. Presentándolo por internet, " +
+      "que es la vía ordinaria, el plazo va del 1 al 31 de enero del año siguiente.",
     authority: "AEAT",
     periodicity: "ANUAL",
     responsible: "EMPRESA",
     factKey: "PLAZO_RESUMEN_ANUAL_RETENCIONES",
-    windowRule: "En enero del año siguiente. El día exacto hay que leerlo en el calendario del ejercicio.",
-    schedule: { kind: "SIN_FECHA" },
+    windowRule:
+      "Del 1 al 31 de enero del año siguiente al ejercicio que resume, presentándolo por internet. " +
+      "Si el 31 cae en fin de semana, pasa al siguiente día hábil.",
+    // Antes esta obligación no tenía fecha, y una obligación sin fecha no genera
+    // aviso: el sistema calcula los diez, tres y un día antes sobre una fecha.
+    // El artículo 5 de la Orden EHA/3127/2009 sí la fija; verificado en el BOE.
+    schedule: { kind: "ANNUAL", month: 1, day: 31, periodOffset: -1 },
     applies: (profile) => profile.willHireWorkers || isCompany(profile.legalForm),
+  },
+  {
+    code: "JUNTA_ORDINARIA",
+    model: null,
+    title: "Junta general ordinaria · aprobación de las cuentas",
+    detail:
+      "La junta que aprueba las cuentas del ejercicio anterior tiene que reunirse dentro de los seis " +
+      "primeros meses del ejercicio. De su fecha de aprobación arranca el plazo para depositar las cuentas " +
+      "en el Registro Mercantil, así que conviene no apurarla.",
+    authority: "La sociedad",
+    periodicity: "ANUAL",
+    responsible: "ADMINISTRADOR",
+    factKey: "PLAZO_JUNTA_ORDINARIA",
+    windowRule: "Dentro de los seis primeros meses del ejercicio siguiente al que se aprueba.",
+    schedule: { kind: "ANNUAL", month: 6, day: 30, periodOffset: -1 },
+    outerLimit:
+      "El 30 de junio es el último día, no una fecha elegida: la junta puede reunirse antes. " +
+      "La fecha se calcula suponiendo el ejercicio cerrado a 31 de diciembre; con otro cierre, " +
+      "cuenta seis meses desde el tuyo.",
+    // Aprobar las cuentas es lo que desbloquea el depósito, y no aparecía en
+    // ningún sitio. Quien creaba una sociedad se encontraba con el depósito
+    // fuera de plazo sin haber sabido nunca que antes había una junta.
+    applies: (profile) => isCompany(profile.legalForm),
   },
   {
     code: "CUENTAS_ANUALES",
     model: null,
     title: "Depósito de cuentas anuales",
     detail:
-      "Las cuentas se depositan en el Registro Mercantil dentro del mes siguiente a que la junta general las apruebe.",
+      "Las cuentas se depositan en el Registro Mercantil dentro del mes siguiente a que la junta general " +
+      "las apruebe. Mientras no se depositan, el Registro no inscribe documentos de la sociedad.",
     authority: "Registro Mercantil",
     periodicity: "ANUAL",
     responsible: "ADMINISTRADOR",
     factKey: "PLAZO_CUENTAS_ANUALES",
     windowRule: "Dentro del mes siguiente a la aprobación por la junta general.",
-    schedule: { kind: "SIN_FECHA" },
+    schedule: { kind: "ANNUAL", month: 7, day: 30, periodOffset: -1 },
+    outerLimit:
+      "El 30 de julio es el límite exterior: sale de sumar el mes del artículo 279 al último día en que " +
+      "la junta puede reunirse. Si tu junta aprobó antes, tu plazo terminó antes. Anota la fecha de " +
+      "aprobación en el expediente y esta fecha se recalcula sobre ella.",
+    anchoredOn: "ACCOUNTS_APPROVAL",
     applies: (profile) => isCompany(profile.legalForm),
   },
 ];
@@ -342,6 +397,22 @@ function addDays(isoDate: string, days: number): string {
   return base.toISOString().slice(0, 10);
 }
 
+/**
+ * Un mes natural más tarde, en el sentido del «mes siguiente» del artículo 279:
+ * mismo día del mes que viene, y si ese día no existe, el último del mes. Del 31
+ * de enero sale el 28 de febrero, no el 3 de marzo; desbordar al mes siguiente
+ * daría un plazo más largo que el que da la ley.
+ */
+function addOneMonth(isoDate: string): string {
+  const [year, month, day] = isoDate.split("-").map(Number);
+  const siguienteMes = month === 12 ? 1 : month + 1;
+  const siguienteAno = month === 12 ? year + 1 : year;
+  const tope = lastDayOfMonth(siguienteAno, siguienteMes);
+  return iso(siguienteAno, siguienteMes, Math.min(day, tope));
+}
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
 export const DEFAULT_CALENDAR_PROFILE: ProjectProfile = {
   legalForm: null,
   founders: 1,
@@ -374,6 +445,14 @@ export type CalendarInput = {
    * obligación de una empresa que ya venía funcionando antes de usar la app.
    */
   activityStart?: string;
+  /**
+   * Fecha en que la junta general aprobó las últimas cuentas anuales, en ISO.
+   *
+   * Con ella, el depósito de cuentas deja de mostrarse como límite exterior y
+   * pasa a tener la fecha de esta sociedad: un mes desde la aprobación. Sin
+   * ella, el calendario sólo puede ofrecer el límite, y lo dice.
+   */
+  accountsApproval?: string;
 };
 
 /**
@@ -384,6 +463,9 @@ export function upcomingObligations(input: CalendarInput): ObligationOccurrence[
   const profile = { ...DEFAULT_CALENDAR_PROFILE, ...input.profile } as ProjectProfile;
   const from = input.from ?? new Date().toISOString().slice(0, 10);
   const inicioActividad = input.activityStart?.slice(0, 10);
+  const aprobacionCuentas = ISO_DATE.test(input.accountsApproval?.slice(0, 10) ?? "")
+    ? input.accountsApproval!.slice(0, 10)
+    : undefined;
   const horizon = addDays(from, input.horizonDays ?? 365);
   const years = [Number(from.slice(0, 4)) - 1, Number(from.slice(0, 4)), Number(horizon.slice(0, 4))];
   const uniqueYears = [...new Set(years)];
@@ -434,9 +516,40 @@ export function upcomingObligations(input: CalendarInput): ObligationOccurrence[
       continue;
     }
 
+    // Una obligación anclada en un dato del expediente produce la fecha de ESTA
+    // sociedad, no una del calendario: un mes desde que la junta aprobó. Cuando
+    // hay dato propio, el límite exterior sobra.
+    if (definition.anchoredOn === "ACCOUNTS_APPROVAL" && aprobacionCuentas) {
+      const vencimiento = addOneMonth(aprobacionCuentas);
+      if (vencimiento >= from && vencimiento <= horizon) {
+        const ejercicio = Number(aprobacionCuentas.slice(0, 4)) - 1;
+        salida.push({
+          code: `${definition.code}:APROBACION_${aprobacionCuentas}`,
+          obligationCode: definition.code,
+          model: definition.model,
+          title: definition.title,
+          detail: definition.detail,
+          authority: definition.authority,
+          periodicity: definition.periodicity,
+          responsible: quienResponde(definition.responsible),
+          periodLabel: `Ejercicio ${ejercicio}`,
+          dueDate: vencimiento,
+          windowRule: definition.windowRule,
+          sourceUrl: source.url,
+          sourceTitle: `${source.authority} · ${source.title}`,
+          anchorNote: `Un mes desde el ${aprobacionCuentas}, la fecha de aprobación que consta en tu expediente.`,
+        });
+      }
+      continue;
+    }
+
     // La cuota de RETA vence «dentro del mismo mes»: trasladarla al lunes la
-    // empujaría al mes siguiente y contradiría la propia fuente. No se traslada.
-    const permiteTraslado = definition.schedule.kind !== "MONTHLY_SAME_MONTH";
+    // empujaría al mes siguiente y contradiría la propia fuente. Y un límite
+    // legal tampoco se traslada: moverlo hacia adelante daría por bueno un día
+    // en que el plazo ya habría pasado. Sólo se traslada lo que refleja el
+    // calendario de la AEAT, que es quien practica ese traslado.
+    const permiteTraslado =
+      definition.schedule.kind !== "MONTHLY_SAME_MONTH" && !definition.outerLimit;
 
     for (const year of uniqueYears) {
       for (const raw of occurrencesForYear(definition.schedule, year)) {
@@ -465,6 +578,7 @@ export function upcomingObligations(input: CalendarInput): ObligationOccurrence[
           sourceUrl: source.url,
           sourceTitle: `${source.authority} · ${source.title}`,
           ...(shiftNote ? { shiftNote } : {}),
+          ...(definition.outerLimit ? { limitNote: definition.outerLimit } : {}),
         });
       }
     }
@@ -476,6 +590,31 @@ export function upcomingObligations(input: CalendarInput): ObligationOccurrence[
     if (b.dueDate) return 1;
     return a.title.localeCompare(b.title);
   });
+}
+
+export type SplitObligations = {
+  /** Las que tienen fecha cerrada. Son las únicas que pueden generar aviso. */
+  conFecha: ObligationOccurrence[];
+  /** Las que no la tienen. No avisan de nada: hay que ir a comprobarlas. */
+  sinFecha: ObligationOccurrence[];
+};
+
+/**
+ * Separa las dos cosas que el panel mezclaba.
+ *
+ * El sistema de avisos calcula los diez, tres y un día antes sobre una fecha;
+ * sin fecha no puede avisar. Mientras las dos listas iban juntas, una obligación
+ * sin fecha parecía tan vigilada como las demás, y no lo estaba. Puestas aparte,
+ * quien las lee sabe que de ésas responde él.
+ */
+export function splitByDate(occurrences: ObligationOccurrence[]): SplitObligations {
+  const conFecha: ObligationOccurrence[] = [];
+  const sinFecha: ObligationOccurrence[] = [];
+  for (const item of occurrences) {
+    if (item.dueDate) conFecha.push(item);
+    else sinFecha.push(item);
+  }
+  return { conFecha, sinFecha };
 }
 
 /** Días que faltan para el vencimiento. Negativo si ya ha pasado. */

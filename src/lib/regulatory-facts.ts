@@ -291,36 +291,72 @@ export const REGULATORY_FACTS: RegulatoryFact[] = [
   {
     key: "PLAZO_RESUMEN_ANUAL_RETENCIONES",
     statement:
-      "Los resúmenes anuales de retenciones (modelos 190 y 180) se presentan en enero, pero la fecha exacta del ejercicio en curso debe leerse en el calendario del contribuyente vigente.",
-    authority: "OFFICIAL_SOURCE",
-    lastVerifiedAt: "2026-09-04",
-    confidence: 0.6,
-    requiresLiveVerification: true,
-    verificationNote:
-      "El calendario del contribuyente consultado no confirma el día exacto de los modelos 190 y 180. Hay que comprobarlo en el calendario del ejercicio antes de fijar la fecha.",
+      "El artículo 5 de la Orden EHA/3127/2009 fija el plazo del resumen anual de retenciones, modelo 190: «la presentación del resumen anual de retenciones e ingresos a cuenta, modelo 190, se realizará en los primeros veinte días naturales del mes de enero de cada año»; «no obstante, el plazo de presentación será el comprendido entre el 1 de enero y el 31 de enero del año siguiente al que corresponde el resumen anual» cuando la declaración se presente por vía telemática, en soporte legible por ordenador o en impreso del módulo de la AEAT. La presentación por internet es la vía ordinaria, de modo que el plazo aplicable es el que termina el 31 de enero. Para el resumen del ejercicio 2025 la Agencia Tributaria publica el plazo «del 1 de enero al 2 de febrero de 2026», porque el 31 de enero de 2026 cae en sábado.",
+    authority: "LAW",
+    lastVerifiedAt: "2026-09-14",
+    confidence: 0.93,
+    requiresLiveVerification: false,
     productRule:
-      "La obligación se muestra sin fecha cerrada y con el enlace al calendario oficial. Nunca se presenta como una fecha confirmada.",
+      "El calendario fija el vencimiento del modelo 190 el 31 de enero del año siguiente al ejercicio, trasladado al siguiente día hábil si cae en fin de semana. El aviso debe seguir diciendo que los festivos autonómicos y locales no están aplicados.",
     sources: [
       {
+        authority: "BOE",
+        title: "Orden EHA/3127/2009, artículo 5 · texto consolidado",
+        url: "https://www.boe.es/buscar/act.php?id=BOE-A-2009-18567",
+      },
+      {
         authority: "AEAT",
-        title: "Calendario del contribuyente",
-        url: "https://sede.agenciatributaria.gob.es/Sede/calendario-contribuyente.html",
+        title: "Modelo 190 · plazos de presentación",
+        url: "https://sede.agenciatributaria.gob.es/Sede/todas-gestiones/impuestos-tasas/declaraciones-informativas/modelo-190-decla_____moniales-imputaciones-rentas-anual_/plazos-presentacion.html",
+      },
+    ],
+  },
+  {
+    key: "PLAZO_JUNTA_ORDINARIA",
+    statement:
+      "El artículo 164 de la Ley de Sociedades de Capital establece que «la junta general ordinaria, previamente convocada al efecto, se reunirá necesariamente dentro de los seis primeros meses de cada ejercicio». Es la junta que aprueba las cuentas del ejercicio anterior, y de esa aprobación arranca el plazo de depósito del artículo 279.",
+    authority: "LAW",
+    lastVerifiedAt: "2026-09-14",
+    confidence: 0.92,
+    requiresLiveVerification: false,
+    productRule:
+      "Es un límite, no una fecha elegida: la junta puede reunirse antes, nunca después. El calendario lo muestra como vencimiento porque es la única fecha cierta, y advierte de que se cuenta sobre un ejercicio cerrado a 31 de diciembre.",
+    sources: [
+      {
+        authority: "BOE",
+        title: "Ley de Sociedades de Capital, texto consolidado",
+        url: "https://www.boe.es/buscar/act.php?id=BOE-A-2010-10544",
+      },
+      {
+        authority: "BOE · DGSJFP",
+        title:
+          "Resolución de 10 de diciembre de 2024, que transcribe los artículos 164 y 279 de la Ley de Sociedades de Capital",
+        url: "https://www.boe.es/diario_boe/txt.php?id=BOE-A-2025-2394",
       },
     ],
   },
   {
     key: "PLAZO_CUENTAS_ANUALES",
     statement:
-      "Las cuentas anuales se depositan en el Registro Mercantil dentro del mes siguiente a su aprobación por la junta general, conforme al Reglamento del Registro Mercantil.",
-    authority: "OFFICIAL_SOURCE",
-    lastVerifiedAt: "2026-09-04",
-    confidence: 0.6,
-    requiresLiveVerification: true,
-    verificationNote:
-      "La fecha depende del día en que la junta apruebe las cuentas, que es un dato del expediente. Sin esa fecha no puede fijarse el vencimiento del depósito.",
+      "El artículo 279.1 de la Ley de Sociedades de Capital establece que «dentro del mes siguiente a la aprobación de las cuentas anuales, los administradores de la sociedad presentarán» su depósito en el Registro Mercantil. La fecha propia de cada sociedad depende, por tanto, del día en que la junta apruebe. Como esa junta debe reunirse dentro de los seis primeros meses del ejercicio siguiente (artículo 164), con el ejercicio cerrado a 31 de diciembre el límite exterior del depósito es el 30 de julio.",
+    authority: "LAW",
+    lastVerifiedAt: "2026-09-14",
+    confidence: 0.9,
+    requiresLiveVerification: false,
     productRule:
-      "Se muestra como obligación anual sin fecha cerrada hasta que el expediente registre la fecha de aprobación de la junta.",
+      "Si el expediente registra la fecha de aprobación por la junta, el vencimiento es un mes después de esa fecha y el aviso se calcula sobre ella. Si no la registra, se muestra el límite exterior diciendo expresamente que es un límite y no la fecha de esta sociedad: si la junta aprobó antes, el plazo terminó antes.",
     sources: [
+      {
+        authority: "BOE",
+        title: "Ley de Sociedades de Capital, texto consolidado",
+        url: "https://www.boe.es/buscar/act.php?id=BOE-A-2010-10544",
+      },
+      {
+        authority: "BOE · DGSJFP",
+        title:
+          "Resolución de 10 de diciembre de 2024, que transcribe los artículos 164 y 279 de la Ley de Sociedades de Capital",
+        url: "https://www.boe.es/diario_boe/txt.php?id=BOE-A-2025-2394",
+      },
       {
         authority: "BOE",
         title: "Real Decreto 1784/1996, Reglamento del Registro Mercantil",

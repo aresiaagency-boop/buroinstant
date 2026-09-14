@@ -40,7 +40,17 @@ type Candidate = {
   legalForm: string | null;
   hasPremises: boolean;
   founders: number;
+  /** Desde cuándo corren los plazos de esta empresa, si ya lo ha declarado. */
+  activityStart?: string;
+  /** Cuándo aprobó la junta las últimas cuentas, si ya consta. */
+  accountsApproval?: string;
 };
+
+/** Una fecha de base de datos, en ISO corto, o nada si no la hay. */
+function comoFecha(valor: Date | string | null): string | undefined {
+  if (!valor) return undefined;
+  return String(valor instanceof Date ? valor.toISOString().slice(0, 10) : valor).slice(0, 10);
+}
 
 /** Expedientes cuyo titular tiene un WhatsApp verificado. */
 async function readCandidates(limit: number): Promise<Candidate[]> {
@@ -52,12 +62,15 @@ async function readCandidates(limit: number): Promise<Candidate[]> {
       user_id: string;
       phone: string;
       preferred_legal_form: string | null;
+      activity_start_date: Date | string | null;
+      accounts_approval_date: Date | string | null;
       premises: string | number;
       founders: string | number;
     }>
   >`
     select p.id as project_id, p.workspace_id, u.id as user_id,
            c.normalized_value as phone, p.preferred_legal_form,
+           p.activity_start_date, p.accounts_approval_date,
            (select count(*) from business_locations l
              where l.project_id = p.id and l.location_type = 'ACTIVITY_ADDRESS') as premises,
            (select count(*) from founders f where f.project_id = p.id) as founders
@@ -78,6 +91,8 @@ async function readCandidates(limit: number): Promise<Candidate[]> {
     legalForm: row.preferred_legal_form,
     hasPremises: Number(row.premises) > 0,
     founders: Number(row.founders) || 1,
+    activityStart: comoFecha(row.activity_start_date),
+    accountsApproval: comoFecha(row.accounts_approval_date),
   }));
 }
 
@@ -159,7 +174,17 @@ export async function runDeadlineReminders(options: {
       founders: candidate.founders,
     };
 
-    const ocurrencias = upcomingObligations({ profile, from: today, horizonDays: 30 });
+    // El panel ya filtraba por la fecha de inicio de actividad y por la
+    // aprobación de la junta; esta pasada no, y es la que manda el WhatsApp.
+    // Sin pasarlas, se avisaba de un plazo de un período anterior a la empresa:
+    // el aviso falso es el que enseña a ignorar los verdaderos.
+    const ocurrencias = upcomingObligations({
+      profile,
+      from: today,
+      horizonDays: 30,
+      activityStart: candidate.activityStart,
+      accountsApproval: candidate.accountsApproval,
+    });
     const alreadySent = await readAlreadySent(candidate.projectId);
     const plan = planReminders({ occurrences: ocurrencias, today, alreadySent });
     if (plan.length === 0) continue;

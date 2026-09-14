@@ -86,6 +86,8 @@ type ObligationRow = {
   sourceTitle: string;
   pendingVerification?: string;
   shiftNote?: string;
+  limitNote?: string;
+  anchorNote?: string;
   urgency: "SIN_FECHA" | "LEJANO" | "PROXIMO" | "INMINENTE" | "VENCIDO";
 };
 
@@ -95,6 +97,11 @@ type CalendarPayload = {
   horizonDays?: number;
   legalFormDecided?: boolean;
   obligations: ObligationRow[];
+  /** Las que tienen fecha: de éstas avisa BUROINSTANT. */
+  conFecha?: ObligationRow[];
+  /** Las que no la tienen: de éstas no puede avisar, y hay que decirlo. */
+  sinFecha?: ObligationRow[];
+  sinFechaAviso?: string | null;
   message?: string;
   footer?: string;
 };
@@ -200,6 +207,41 @@ const URGENCY_LABEL: Record<string, string> = {
   LEJANO: "Más adelante",
   SIN_FECHA: "Fecha por confirmar",
 };
+
+/**
+ * Una fila del calendario. Es la misma en las dos listas —con fecha y sin
+ * fecha— a propósito: lo que cambia es dónde está, no cómo se lee.
+ */
+function ObligationItem({ item }: { item: ObligationRow }) {
+  return (
+    <li className={`calendar-row calendar-row--${item.urgency.toLowerCase()}`}>
+      <div className="calendar-row__when">
+        <strong>{item.dueDate ? fechaLarga(item.dueDate) : "Por confirmar"}</strong>
+        <small>{URGENCY_LABEL[item.urgency]}</small>
+      </div>
+      <div className="calendar-row__what">
+        <strong>
+          {item.model ? `Modelo ${item.model} · ` : ""}
+          {item.title}
+        </strong>
+        <span className="calendar-row__period">{item.periodLabel}</span>
+        <p>{item.detail}</p>
+        <p className="calendar-row__rule">{item.windowRule}</p>
+        {item.limitNote && <p className="calendar-row__pending">{item.limitNote}</p>}
+        {item.anchorNote && <p className="calendar-row__rule">{item.anchorNote}</p>}
+        {item.pendingVerification && <p className="calendar-row__pending">{item.pendingVerification}</p>}
+        {item.shiftNote && <p className="calendar-row__shift">{item.shiftNote}</p>}
+        <div className="calendar-row__meta">
+          <span>{RESPONSIBLE_LABEL[item.responsible] ?? item.responsible}</span>
+          <span>{item.authority}</span>
+          <a href={item.sourceUrl} target="_blank" rel="noreferrer">
+            {item.sourceTitle} <span aria-hidden="true">↗</span>
+          </a>
+        </div>
+      </div>
+    </li>
+  );
+}
 
 /** 2026-10-20 → «20 de octubre de 2026». Sin Date, para no depender del huso. */
 function fechaLarga(iso: string): string {
@@ -503,11 +545,14 @@ export function DashboardExperience({
       }
       const payload = (await response.json()) as CalendarPayload;
       setCalendar(payload);
-      const conFecha = payload.obligations.filter((item) => item.dueDate).length;
+      const conFecha = (payload.conFecha ?? payload.obligations.filter((item) => item.dueDate)).length;
+      const sinFecha = (payload.sinFecha ?? payload.obligations.filter((item) => !item.dueDate)).length;
       setNotice(
         payload.obligations.length === 0
           ? (payload.message ?? "Todavía no hay obligaciones que calcular.")
-          : `${conFecha} obligaciones con fecha en los próximos doce meses.`,
+          : sinFecha === 0
+            ? `${conFecha} obligaciones con fecha en los próximos doce meses. Te aviso de todas.`
+            : `${conFecha} obligaciones con fecha, de las que te aviso. ${sinFecha} sin fecha cerrada: ésas las compruebas tú.`,
       );
     } catch {
       setNotice("Sin conexión. No he podido construir el calendario.");
@@ -1348,7 +1393,7 @@ export function DashboardExperience({
                 <h2>Calendario de obligaciones</h2>
                 <span>
                   {calendar
-                    ? `${calendar.obligations.filter((item) => item.dueDate).length} con fecha`
+                    ? `${(calendar.conFecha ?? calendar.obligations.filter((item) => item.dueDate)).length} con fecha`
                     : "sin calcular"}
                 </span>
               </div>
@@ -1385,37 +1430,29 @@ export function DashboardExperience({
                 <p className="calendar-card__warn">{calendar.message ?? "Todavía no hay nada que calcular."}</p>
               )}
 
-              {calendar && calendar.obligations.length > 0 && (
+              {calendar && (calendar.conFecha ?? calendar.obligations).length > 0 && (
                 <ol className="calendar-card__list">
-                  {calendar.obligations.map((item) => (
-                    <li key={item.code} className={`calendar-row calendar-row--${item.urgency.toLowerCase()}`}>
-                      <div className="calendar-row__when">
-                        <strong>{item.dueDate ? fechaLarga(item.dueDate) : "Por confirmar"}</strong>
-                        <small>{URGENCY_LABEL[item.urgency]}</small>
-                      </div>
-                      <div className="calendar-row__what">
-                        <strong>
-                          {item.model ? `Modelo ${item.model} · ` : ""}
-                          {item.title}
-                        </strong>
-                        <span className="calendar-row__period">{item.periodLabel}</span>
-                        <p>{item.detail}</p>
-                        <p className="calendar-row__rule">{item.windowRule}</p>
-                        {item.pendingVerification && (
-                          <p className="calendar-row__pending">{item.pendingVerification}</p>
-                        )}
-                        {item.shiftNote && <p className="calendar-row__shift">{item.shiftNote}</p>}
-                        <div className="calendar-row__meta">
-                          <span>{RESPONSIBLE_LABEL[item.responsible] ?? item.responsible}</span>
-                          <span>{item.authority}</span>
-                          <a href={item.sourceUrl} target="_blank" rel="noreferrer">
-                            {item.sourceTitle} <span aria-hidden="true">↗</span>
-                          </a>
-                        </div>
-                      </div>
-                    </li>
+                  {(calendar.conFecha ?? calendar.obligations).map((item) => (
+                    <ObligationItem key={item.code} item={item} />
                   ))}
                 </ol>
+              )}
+
+              {/* Las que no tienen fecha van aparte, y con el motivo delante: de
+                  éstas BUROINSTANT no avisa, así que responde quien las lee. */}
+              {calendar && (calendar.sinFecha?.length ?? 0) > 0 && (
+                <div className="calendar-card__undated">
+                  <h3>Sin fecha · de éstas no puedo avisarte</h3>
+                  <p className="calendar-card__warn">
+                    {calendar.sinFechaAviso ??
+                      "Estas obligaciones no tienen fecha cerrada, así que el aviso de los diez, tres y un día antes no puede calcularse. Compruébalas en la sede oficial enlazada."}
+                  </p>
+                  <ol className="calendar-card__list">
+                    {calendar.sinFecha!.map((item) => (
+                      <ObligationItem key={item.code} item={item} />
+                    ))}
+                  </ol>
+                </div>
               )}
 
               {calendar?.footer && <p className="calendar-card__footer">{calendar.footer}</p>}

@@ -2506,6 +2506,23 @@ a {
   line-height: 1.6;
 }
 
+/* Las obligaciones sin fecha, separadas de las que sí avisan. El borde y el
+   título dicen a simple vista que de esta lista responde quien la lee. */
+.calendar-card__undated {
+  margin: 1.2rem 0 0.6rem;
+  padding: 0.9rem 0 0;
+  border-top: 1px dashed var(--line);
+}
+
+.calendar-card__undated h3 {
+  margin: 0 0 0.5rem;
+  color: var(--gold-antique);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .calendar-card__footer {
   margin: 0.9rem 0 0.9rem;
   padding-top: 0.7rem;

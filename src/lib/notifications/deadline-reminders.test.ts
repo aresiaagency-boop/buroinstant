@@ -215,19 +215,67 @@ describe("contra el calendario real", () => {
     }
   });
 
-  it("las obligaciones sin fecha del calendario real nunca generan aviso", () => {
-    const ocurrencias = upcomingObligations({
+  it("una obligación sin fecha nunca genera aviso", () => {
+    // Ya no hay ninguna en el catálogo, pero la regla tiene que seguir en pie:
+    // el aviso se calcula sobre una fecha, y «creo que era por ahí» es peor que
+    // no mandar nada. Se prueba con una ocurrencia construida a mano para que la
+    // regla siga cubierta el día que vuelva a haber un hecho sin verificar.
+    const real = upcomingObligations({
       profile: { legalForm: "SL", willHireWorkers: true },
       from: "2026-09-04",
       horizonDays: 400,
     });
-    const sinFecha = ocurrencias.filter((o) => !o.dueDate);
-    expect(sinFecha.length).toBeGreaterThan(0);
+    const sinFecha: ObligationOccurrence = {
+      ...real[0],
+      code: "INVENTADA:SIN_FECHA_2026",
+      obligationCode: "INVENTADA",
+      dueDate: null,
+      pendingVerification: "Pendiente de comprobar en la sede oficial.",
+    };
 
-    const plan = planReminders({ occurrences: ocurrencias, today: "2026-09-04", alreadySent: VACIO });
-    const codigosAvisados = new Set(plan.map((r) => r.occurrenceCode));
-    for (const sin of sinFecha) {
-      expect(codigosAvisados.has(sin.code)).toBe(false);
-    }
+    const plan = planReminders({
+      occurrences: [...real, sinFecha],
+      today: "2026-09-04",
+      alreadySent: VACIO,
+    });
+    expect(plan.map((r) => r.occurrenceCode)).not.toContain(sinFecha.code);
+  });
+
+  it("el resumen anual de retenciones ya avisa, porque ya tiene fecha", () => {
+    // Era el caso del hueco 4: sin fecha, el 190 no generaba ningún aviso. Diez
+    // días antes del 1 de febrero de 2027 toca el primero.
+    const ocurrencias = upcomingObligations({
+      profile: { legalForm: "SL", willHireWorkers: true },
+      from: "2027-01-22",
+      horizonDays: 30,
+    });
+    const plan = planReminders({ occurrences: ocurrencias, today: "2027-01-22", alreadySent: VACIO });
+    const aviso = plan.find((r) => r.obligationCode === "RETENCIONES_190");
+    expect(aviso).toBeDefined();
+    expect(aviso?.dueDate).toBe("2027-02-01");
+    expect(aviso?.window).toBe(10);
+    expect(aviso?.message).toContain("Modelo 190");
+  });
+
+  it("la junta y el depósito de cuentas también avisan", () => {
+    const juntas = planReminders({
+      occurrences: upcomingObligations({ profile: { legalForm: "SLU" }, from: "2027-06-20", horizonDays: 30 }),
+      today: "2027-06-20",
+      alreadySent: VACIO,
+    });
+    expect(juntas.map((r) => r.obligationCode)).toContain("JUNTA_ORDINARIA");
+
+    const deposito = planReminders({
+      occurrences: upcomingObligations({
+        profile: { legalForm: "SLU" },
+        from: "2027-04-05",
+        horizonDays: 30,
+        accountsApproval: "2027-03-15",
+      }),
+      today: "2027-04-05",
+      alreadySent: VACIO,
+    });
+    const cuentas = deposito.find((r) => r.obligationCode === "CUENTAS_ANUALES");
+    expect(cuentas?.dueDate).toBe("2027-04-15");
   });
 });

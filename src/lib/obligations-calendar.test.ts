@@ -3,10 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   OBLIGATION_CATALOG,
   daysUntil,
+  splitByDate,
   upcomingObligations,
   urgencyOf,
 } from "@/lib/obligations-calendar";
-import { REGULATORY_FACTS, fact } from "@/lib/regulatory-facts";
+import { REGULATORY_FACTS, fact, isBindingFact } from "@/lib/regulatory-facts";
 
 const AUTONOMO = { legalForm: "AUTONOMO" as const };
 const SOCIEDAD = { legalForm: "SL" as const };
@@ -149,25 +150,15 @@ describe("cálculo de plazos", () => {
 });
 
 describe("regla de no inventar fechas", () => {
-  it("un hecho sin verificar produce una obligación sin fecha y con el aviso", () => {
-    const ocurrencias = upcomingObligations({
-      profile: { ...SOCIEDAD, willHireWorkers: true },
-      from: "2026-09-04",
-    });
-    const resumen = ocurrencias.find((o) => o.obligationCode === "RETENCIONES_190");
-    expect(resumen).toBeDefined();
-    expect(resumen?.dueDate).toBeNull();
-    expect(resumen?.pendingVerification).toBeTruthy();
-    // La regla en palabras sí está: lo que falta es el día.
-    expect(resumen?.windowRule).toContain("enero");
-  });
-
-  it("el depósito de cuentas no fija fecha porque depende de la junta", () => {
-    const cuentas = upcomingObligations({ profile: SOCIEDAD, from: "2026-09-04" }).find(
-      (o) => o.obligationCode === "CUENTAS_ANUALES",
-    );
-    expect(cuentas?.dueDate).toBeNull();
-    expect(cuentas?.pendingVerification).toContain("junta");
+  it("ninguna obligación del catálogo se apoya hoy en un hecho sin verificar", () => {
+    // La rama «sin fecha» sigue viva y probada más abajo, pero hoy no la usa
+    // ninguna obligación: todas descansan en una fuente verificada. Si mañana un
+    // hecho pierde la verificación, esta prueba lo dice antes que un usuario.
+    for (const definition of OBLIGATION_CATALOG) {
+      const item = fact(definition.factKey);
+      expect(item, definition.code).toBeDefined();
+      expect(isBindingFact(item), definition.code).toBe(true);
+    }
   });
 
   it("toda ocurrencia sin fecha explica qué falta comprobar", () => {
@@ -374,13 +365,133 @@ describe("el calendario no empieza antes que la empresa", () => {
     for (const o of conFecha) expect(codigosBase.has(o.code)).toBe(true);
   });
 
-  it("una obligación sin fecha sobrevive al filtro: ya avisa de que hay que comprobarla", () => {
-    const conFecha = upcomingObligations({
-      profile: SOCIEDAD_SLU,
+});
+
+/**
+ * Hueco 4: una obligación sin fecha no genera aviso, porque el aviso se calcula
+ * diez, tres y un día antes de una fecha. El resumen anual de retenciones y el
+ * depósito de cuentas salían sin fecha, y por tanto no avisaban de nada.
+ */
+describe("las obligaciones que antes no tenían fecha ya la tienen", () => {
+  it("el modelo 190 vence el 31 de enero del año siguiente", () => {
+    const resumen = upcomingObligations({
+      profile: { ...SOCIEDAD, willHireWorkers: true },
+      from: "2027-01-01",
+      horizonDays: 60,
+    }).find((o) => o.obligationCode === "RETENCIONES_190");
+
+    // 31 de enero de 2027 es domingo: se traslada al lunes 1 de febrero.
+    expect(resumen?.dueDate).toBe("2027-02-01");
+    expect(resumen?.periodLabel).toBe("Ejercicio 2026");
+    expect(resumen?.shiftNote).toBeTruthy();
+    expect(resumen?.pendingVerification).toBeUndefined();
+  });
+
+  it("el 190 del ejercicio 2025 coincide con la fecha que publica la AEAT", () => {
+    // La sede publica «del 1 de enero al 2 de febrero de 2026», porque el 31 de
+    // enero de 2026 cae en sábado. Si el motor diera otra cosa, estaría mal.
+    const resumen = upcomingObligations({
+      profile: { ...SOCIEDAD, willHireWorkers: true },
+      from: "2026-01-02",
+      horizonDays: 60,
+    }).find((o) => o.obligationCode === "RETENCIONES_190");
+    expect(resumen?.dueDate).toBe("2026-02-02");
+  });
+
+  it("la junta ordinaria aparece con su límite de seis meses", () => {
+    const junta = upcomingObligations({ profile: SOCIEDAD, from: "2027-01-01", horizonDays: 300 }).find(
+      (o) => o.obligationCode === "JUNTA_ORDINARIA",
+    );
+    expect(junta?.dueDate).toBe("2027-06-30");
+    expect(junta?.responsible).toBe("ADMINISTRADOR");
+    expect(junta?.limitNote).toContain("último día");
+  });
+
+  it("un autónomo no tiene junta ni depósito de cuentas", () => {
+    const codigos = upcomingObligations({ profile: AUTONOMO, from: "2027-01-01", horizonDays: 400 }).map(
+      (o) => o.obligationCode,
+    );
+    expect(codigos).not.toContain("JUNTA_ORDINARIA");
+    expect(codigos).not.toContain("CUENTAS_ANUALES");
+  });
+
+  it("sin fecha de junta, el depósito muestra el límite exterior y dice que lo es", () => {
+    const cuentas = upcomingObligations({ profile: SOCIEDAD, from: "2027-01-01", horizonDays: 300 }).find(
+      (o) => o.obligationCode === "CUENTAS_ANUALES",
+    );
+    expect(cuentas?.dueDate).toBe("2027-07-30");
+    expect(cuentas?.limitNote).toContain("límite exterior");
+    // Lo importante: que no se lea como «tu plazo».
+    expect(cuentas?.limitNote).toContain("terminó antes");
+  });
+
+  it("un límite legal no se traslada al lunes aunque caiga en fin de semana", () => {
+    // 30 de junio de 2029 es sábado. Moverlo al lunes 2 de julio daría por bueno
+    // un día en que el plazo del artículo 164 ya habría pasado.
+    const junta = upcomingObligations({ profile: SOCIEDAD, from: "2029-01-01", horizonDays: 300 }).find(
+      (o) => o.obligationCode === "JUNTA_ORDINARIA",
+    );
+    expect(junta?.dueDate).toBe("2029-06-30");
+    expect(junta?.shiftNote).toBeUndefined();
+  });
+
+  it("con la fecha de aprobación, el depósito pasa a ser el plazo de esta sociedad", () => {
+    const cuentas = upcomingObligations({
+      profile: SOCIEDAD,
+      from: "2027-01-01",
+      horizonDays: 300,
+      accountsApproval: "2027-03-15",
+    }).find((o) => o.obligationCode === "CUENTAS_ANUALES");
+
+    expect(cuentas?.dueDate).toBe("2027-04-15");
+    expect(cuentas?.limitNote).toBeUndefined();
+    expect(cuentas?.anchorNote).toContain("2027-03-15");
+    expect(cuentas?.periodLabel).toBe("Ejercicio 2026");
+  });
+
+  it("del 31 de enero sale el 28 de febrero, no el 3 de marzo", () => {
+    const cuentas = upcomingObligations({
+      profile: SOCIEDAD,
+      from: "2027-01-01",
+      horizonDays: 300,
+      accountsApproval: "2027-01-31",
+    }).find((o) => o.obligationCode === "CUENTAS_ANUALES");
+    // «Dentro del mes siguiente» no puede dar más de un mes por desbordar días.
+    expect(cuentas?.dueDate).toBe("2027-02-28");
+  });
+
+  it("una fecha de aprobación con formato inválido se ignora, no rompe el calendario", () => {
+    const cuentas = upcomingObligations({
+      profile: SOCIEDAD,
+      from: "2027-01-01",
+      horizonDays: 300,
+      accountsApproval: "el mes pasado",
+    }).find((o) => o.obligationCode === "CUENTAS_ANUALES");
+    expect(cuentas?.dueDate).toBe("2027-07-30");
+  });
+});
+
+describe("separar lo que avisa de lo que no", () => {
+  it("splitByDate reparte sin perder ni duplicar nada", () => {
+    const ocurrencias = upcomingObligations({
+      profile: { ...SOCIEDAD, hasPremises: true, willHireWorkers: true },
       from: "2026-09-14",
       horizonDays: 400,
-      activityStart: "2026-11-01",
     });
-    expect(conFecha.some((o) => o.dueDate === null)).toBe(true);
+    const { conFecha, sinFecha } = splitByDate(ocurrencias);
+    expect(conFecha.length + sinFecha.length).toBe(ocurrencias.length);
+    for (const o of conFecha) expect(o.dueDate).toBeTruthy();
+    for (const o of sinFecha) expect(o.dueDate).toBeNull();
+  });
+
+  it("hoy no queda ninguna obligación sin fecha para una sociedad", () => {
+    const { sinFecha } = splitByDate(
+      upcomingObligations({
+        profile: { ...SOCIEDAD, hasPremises: true, willHireWorkers: true },
+        from: "2026-09-14",
+        horizonDays: 400,
+      }),
+    );
+    expect(sinFecha).toHaveLength(0);
   });
 });

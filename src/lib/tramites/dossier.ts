@@ -92,6 +92,11 @@ const DATOS: Record<ProfileKey, { etiqueta: string; comoSeConsigue: string }> = 
     etiqueta: "Fecha de inicio de actividad",
     comoSeConsigue: "La que declares en el modelo 036. Marca desde cuándo corren tus plazos.",
   },
+  accounts_approval_date: {
+    etiqueta: "Fecha de aprobación de las cuentas",
+    comoSeConsigue:
+      "El día en que la junta general aprobó las últimas cuentas anuales. Desde ella cuenta el mes para depositarlas.",
+  },
 };
 
 /**
