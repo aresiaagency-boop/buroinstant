@@ -128,12 +128,94 @@ export async function readLatestProject(actor: Actor): Promise<ProjectSnapshot |
     select p.id
     from business_projects p
     join workspace_members m on m.workspace_id = p.workspace_id
-    where m.user_id = ${userId}
+    where m.user_id = ${userId} and p.archived_at is null
     order by p.updated_at desc
     limit 1
   `;
   if (!row) return null;
   return readProjectSnapshot(actor, row.id);
+}
+
+export type ProyectoListado = {
+  id: string;
+  name: string;
+  caseStage: string;
+  updatedAt: string;
+  archivado: boolean;
+};
+
+/** Todos los expedientes de la persona, archivados incluidos y marcados como tales. */
+export async function listProjects(actor: Actor): Promise<ProyectoListado[]> {
+  const { userId } = await ensureActorWorkspace(actor);
+  const sql = db();
+  const rows = await sql<
+    Array<{ id: string; name: string; case_stage: string; updated_at: Date; archived_at: Date | null }>
+  >`
+    select p.id, p.name, p.case_stage, p.updated_at, p.archived_at
+    from business_projects p
+    join workspace_members m on m.workspace_id = p.workspace_id
+    where m.user_id = ${userId}
+    order by p.archived_at is not null asc, p.updated_at desc
+  `;
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    caseStage: row.case_stage,
+    updatedAt: row.updated_at.toISOString(),
+    archivado: row.archived_at !== null,
+  }));
+}
+
+/**
+ * Archiva un expediente, o lo devuelve.
+ *
+ * Archivar no es borrar, y la diferencia importa: un expediente guarda trámites,
+ * documentos y trazas de quién hizo qué. Destruir eso por una equivocación de
+ * bulto sería peor que el error que se quiere deshacer. Archivado deja de contar
+ * como abierto y el panel no lo elige; todo lo demás sigue donde estaba.
+ *
+ * El último expediente abierto no se archiva: dejar a alguien sin ninguno haría
+ * que el panel pareciera vacío, que es exactamente el susto que esto viene a
+ * evitar.
+ */
+export class LastOpenProjectError extends Error {
+  constructor() {
+    super("LAST_OPEN_PROJECT");
+    this.name = "LastOpenProjectError";
+  }
+}
+
+export async function setProjectArchived(input: {
+  actor: Actor;
+  projectId: string;
+  archivado: boolean;
+}): Promise<ProjectSnapshot> {
+  const { userId, workspaceId } = await assertProjectAccess(input.actor, input.projectId);
+  const sql = db();
+
+  if (input.archivado) {
+    const [{ count }] = await sql<Array<{ count: string }>>`
+      select count(*)::text as count
+      from business_projects
+      where workspace_id = ${workspaceId} and archived_at is null
+    `;
+    if (Number(count) <= 1) throw new LastOpenProjectError();
+  }
+
+  await sql`
+    update business_projects
+    set archived_at = ${input.archivado ? sql`now()` : null}, updated_at = now()
+    where id = ${input.projectId}
+  `;
+  await sql`
+    insert into case_events (workspace_id, project_id, event_type, payload, created_by)
+    values (
+      ${workspaceId}, ${input.projectId}, 'PROFILE_UPDATED',
+      ${sql.json(toDatabaseJson({ archivado: input.archivado }))}, ${userId}
+    )
+  `;
+
+  return readSnapshotById(input.projectId);
 }
 
 export type ProfilePatch = Partial<{

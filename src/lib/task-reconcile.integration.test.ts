@@ -2,7 +2,14 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import { db, isDatabaseConfigured } from "@/lib/db";
 import { upcomingObligations } from "@/lib/obligations-calendar";
-import { readLatestProject, readProjectSnapshot, saveProjectProfile } from "@/lib/project-profile";
+import {
+  LastOpenProjectError,
+  listProjects,
+  readLatestProject,
+  readProjectSnapshot,
+  saveProjectProfile,
+  setProjectArchived,
+} from "@/lib/project-profile";
 import { listTasks, reconcileTasks, syncTasks } from "@/lib/task-repository";
 import type { Actor } from "@/types/domain";
 
@@ -214,5 +221,77 @@ suite("un cambio sin expediente indicado va al que ya existe", () => {
     const actual = await readLatestProject(solo);
     expect(actual?.profile.business_description).toBe("Panadería de barrio");
     expect(actual?.profile.preferred_legal_form).toBe("SL");
+  });
+});
+
+/**
+ * Archivar un expediente.
+ *
+ * Un expediente abierto de más desplaza al verdadero en el panel, porque el
+ * panel muestra el más reciente. Archivar lo quita de en medio sin destruir
+ * nada: trámites, documentos y trazas siguen donde estaban.
+ */
+suite("archivar un expediente lo quita de en medio sin borrarlo", () => {
+  const conDos: Actor = {
+    mode: "oauth",
+    userId: `archiva-${RUN}`,
+    email: `archiva-${RUN}@example.test`,
+    name: "Archivador",
+  };
+  let verdadero = "";
+  let sobrante = "";
+
+  it("con dos expedientes, el panel muestra el más reciente", async () => {
+    const primero = await saveProjectProfile({
+      actor: conDos,
+      patch: { business_description: "El expediente de verdad", preferred_legal_form: "SLU" },
+    });
+    verdadero = primero.id;
+
+    // El segundo se crea a mano: ya no hay forma de abrirlo sin querer.
+    const sql = db();
+    const [fila] = await sql<Array<{ id: string; workspace_id: string }>>`
+      select id, workspace_id from business_projects where id = ${verdadero}
+    `;
+    const [creado] = await sql<Array<{ id: string }>>`
+      insert into business_projects (workspace_id, name, business_description, case_stage, created_by)
+      select ${fila.workspace_id}, 'Mi empresa', '', 'IDEA', created_by
+      from business_projects where id = ${verdadero}
+      returning id
+    `;
+    sobrante = creado.id;
+
+    expect((await readLatestProject(conDos))?.id).toBe(sobrante);
+  });
+
+  it("archivado el sobrante, el panel vuelve al verdadero", async () => {
+    await setProjectArchived({ actor: conDos, projectId: sobrante, archivado: true });
+    expect((await readLatestProject(conDos))?.id).toBe(verdadero);
+  });
+
+  it("archivado no es borrado: sigue existiendo y marcado", async () => {
+    const lista = await listProjects(conDos);
+    const fila = lista.find((p) => p.id === sobrante);
+    expect(fila).toBeDefined();
+    expect(fila?.archivado).toBe(true);
+    // Y el verdadero sigue abierto.
+    expect(lista.find((p) => p.id === verdadero)?.archivado).toBe(false);
+  });
+
+  it("se puede devolver", async () => {
+    await setProjectArchived({ actor: conDos, projectId: sobrante, archivado: false });
+    const lista = await listProjects(conDos);
+    expect(lista.find((p) => p.id === sobrante)?.archivado).toBe(false);
+    // Vuelve a ser el más reciente, porque devolverlo lo toca.
+    expect((await readLatestProject(conDos))?.id).toBe(sobrante);
+  });
+
+  it("el último expediente abierto no se archiva", async () => {
+    await setProjectArchived({ actor: conDos, projectId: sobrante, archivado: true });
+    await expect(
+      setProjectArchived({ actor: conDos, projectId: verdadero, archivado: true }),
+    ).rejects.toBeInstanceOf(LastOpenProjectError);
+    // Y sigue abierto, no a medias.
+    expect((await readLatestProject(conDos))?.id).toBe(verdadero);
   });
 });
