@@ -17,6 +17,7 @@ export const DOCUMENT_CATEGORIES = [
   "LICENSE",
   "BANK",
   "CONTRACT",
+  "INVOICE",
   "OTHER",
 ] as const;
 
@@ -34,6 +35,7 @@ export const CATEGORY_LABEL: Record<DocumentCategory, string> = {
   LICENSE: "Licencias",
   BANK: "Banco",
   CONTRACT: "Contratos",
+  INVOICE: "Facturas",
   OTHER: "Otros",
 };
 
@@ -203,6 +205,14 @@ export function requirementsFor(profile: {
   if (esSociedad) {
     lista.push(
       {
+        category: "CONTRACT",
+        title: "Autorización de domiciliación social",
+        why:
+          "Si el domicilio no es tuyo —un coworking, un despacho alquilado—, el titular tiene que " +
+          "autorizar expresamente que domicilies ahí la sociedad. Sin eso el Registro puede no inscribir.",
+        required: true,
+      },
+      {
         category: "COMPANY_NAME",
         title: "Certificación negativa de denominación social",
         why: "Acredita que el nombre elegido está libre. La notaría no otorga la escritura sin ella.",
@@ -230,6 +240,14 @@ export function requirementsFor(profile: {
         category: "REGISTRY",
         title: "Inscripción en el Registro Mercantil",
         why: "Hasta inscribirse, la sociedad no tiene personalidad jurídica plena.",
+        required: true,
+      },
+      {
+        category: "INVOICE",
+        title: "Primera factura emitida",
+        why:
+          "Es la prueba de que la empresa no sólo existe, sino que funciona. Es el paso que cierra " +
+          "el expediente, y su fecha no puede ser anterior al inicio de actividad declarado.",
         required: true,
       },
     );

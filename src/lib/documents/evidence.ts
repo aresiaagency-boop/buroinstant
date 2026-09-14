@@ -55,6 +55,7 @@ const ESPERAN_A_LA_ADMINISTRACION = new Set([
   "RETA",
   "LOCAL_LICENCIA",
   "ACTIVIDAD_REGULADA",
+  "LIBROS_LEGALIZACION",
 ]);
 
 /** Qué le pasa al itinerario cuando entra un documento. */

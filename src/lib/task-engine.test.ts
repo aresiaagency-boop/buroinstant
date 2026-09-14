@@ -140,3 +140,72 @@ describe("datos regulatorios", () => {
     expect(item?.statement).toMatch(/solidariamente/);
   });
 });
+
+describe("los cuatro trámites que la práctica exige", () => {
+  const SLU = { legalForm: "SLU" as const, founders: 1, hasPremises: false };
+  const codigos = (perfil: Parameters<typeof deriveTasks>[0]) => deriveTasks(perfil).map((t) => t.code);
+
+  it("la cuenta bancaria existe y bloquea al capital", () => {
+    // El certificado bancario se pedía sin que existiera el paso de abrir la
+    // cuenta, que es justo donde se atasca el recorrido real.
+    const tareas = deriveTasks(SLU);
+    expect(tareas.map((t) => t.code)).toContain("BANCO_CUENTA");
+    const capital = tareas.find((t) => t.code === "CAPITAL");
+    expect(capital?.dependencyCodes).toContain("BANCO_CUENTA");
+  });
+
+  it("la domiciliación existe y bloquea a la notaría", () => {
+    const tareas = deriveTasks(SLU);
+    expect(tareas.map((t) => t.code)).toContain("DOMICILIO_SOCIAL");
+    expect(tareas.find((t) => t.code === "NOTARY")?.dependencyCodes).toContain("DOMICILIO_SOCIAL");
+  });
+
+  it("la legalización de libros va después del Registro", () => {
+    const libros = deriveTasks(SLU).find((t) => t.code === "LIBROS_LEGALIZACION");
+    expect(libros?.dependencyCodes).toContain("REGISTRY");
+  });
+
+  it("en unipersonal, los libros mencionan el registro de socio único", () => {
+    const uno = deriveTasks({ ...SLU, founders: 1 }).find((t) => t.code === "LIBROS_LEGALIZACION");
+    expect(uno?.title).toContain("socio único");
+    const varios = deriveTasks({ legalForm: "SL", founders: 3 }).find((t) => t.code === "LIBROS_LEGALIZACION");
+    expect(varios?.title).not.toContain("socio único");
+  });
+
+  it("la primera factura es el último paso y no se puede adelantar", () => {
+    const tareas = deriveTasks(SLU);
+    const factura = tareas.find((t) => t.code === "PRIMERA_FACTURA");
+    expect(factura).toBeDefined();
+    // Es la de mayor prioridad numérica: cierra el itinerario.
+    expect(Math.max(...tareas.map((t) => t.priority))).toBe(factura!.priority);
+    expect(factura!.dependencyCodes).toContain("CENSAL_036");
+    expect(factura!.dependencyCodes).toContain("NIF_DEFINITIVO");
+    expect(factura!.requiredDocuments).toContain("INVOICE");
+  });
+
+  it("un autónomo también factura, pero sin NIF de sociedad", () => {
+    const factura = deriveTasks({ legalForm: "AUTONOMO", founders: 1 }).find(
+      (t) => t.code === "PRIMERA_FACTURA",
+    );
+    expect(factura?.dependencyCodes).toEqual(["CENSAL_036"]);
+  });
+
+  it("los trámites de sociedad no aparecen para un autónomo", () => {
+    const deAutonomo = codigos({ legalForm: "AUTONOMO", founders: 1 });
+    expect(deAutonomo).not.toContain("BANCO_CUENTA");
+    expect(deAutonomo).not.toContain("DOMICILIO_SOCIAL");
+    expect(deAutonomo).not.toContain("LIBROS_LEGALIZACION");
+  });
+
+  it("ninguna dependencia apunta a un trámite que no existe en el itinerario", () => {
+    for (const perfil of [SLU, { legalForm: "AUTONOMO" as const }, { legalForm: "SL" as const, founders: 2 }]) {
+      const tareas = deriveTasks(perfil);
+      const existentes = new Set(tareas.map((t) => t.code));
+      for (const tarea of tareas) {
+        for (const dep of tarea.dependencyCodes) {
+          expect(existentes.has(dep), `${tarea.code} depende de ${dep}, que no está`).toBe(true);
+        }
+      }
+    }
+  });
+});

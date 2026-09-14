@@ -142,6 +142,34 @@ export function deriveTasks(input: Partial<ProjectProfile>): DerivedTask[] {
         verificationMethod: "Estatutos revisados por profesional antes de la firma.",
       },
       {
+        code: "DOMICILIO_SOCIAL",
+        title: "Domicilio social y autorización para domiciliar",
+        detail:
+          "Fijar la dirección que constará en la escritura y obtener del titular del inmueble —arrendador, " +
+          "coworking o centro de negocios— la autorización expresa para domiciliar en ella la sociedad. " +
+          "No todos los coworkings la dan, y sin ella el Registro puede no inscribir.",
+        authority: "Titular del inmueble",
+        status: "WAITING_USER",
+        priority: 35,
+        dependencyCodes: [],
+        requiredDocuments: ["CONTRACT"],
+        verificationMethod: "Contrato o autorización de domiciliación con la dirección exacta.",
+      },
+      {
+        code: "BANCO_CUENTA",
+        title: "Cuenta bancaria de la sociedad en constitución",
+        detail:
+          "Abrir la cuenta a nombre de la sociedad en constitución para ingresar el capital. Es donde más " +
+          "se atasca el recorrido: el banco pide papeles que todavía no existen, así que conviene " +
+          "empezarlo en cuanto haya denominación concedida.",
+        authority: "Entidad bancaria",
+        status: "WAITING_USER",
+        priority: 45,
+        dependencyCodes: ["COMPANY_NAME"],
+        requiredDocuments: ["BANK"],
+        verificationMethod: "Cuenta abierta a nombre de la sociedad en constitución.",
+      },
+      {
         code: "CAPITAL",
         title: "Capital social y justificante de aportación",
         detail:
@@ -149,7 +177,7 @@ export function deriveTasks(input: Partial<ProjectProfile>): DerivedTask[] {
         authority: "Notaría / entidad bancaria",
         status: "WAITING_USER",
         priority: 50,
-        dependencyCodes: [],
+        dependencyCodes: ["BANCO_CUENTA"],
         requiredDocuments: ["BANK"],
         verificationMethod: "Justificante de aportación o declaración conforme a la normativa aplicable.",
         sourceUrl: sourceFor("SL_CAPITAL_MINIMO"),
@@ -174,7 +202,7 @@ export function deriveTasks(input: Partial<ProjectProfile>): DerivedTask[] {
         authority: "Notaría",
         status: "NOT_STARTED",
         priority: 60,
-        dependencyCodes: ["COMPANY_NAME", "BYLAWS", "CAPITAL"],
+        dependencyCodes: ["COMPANY_NAME", "BYLAWS", "CAPITAL", "DOMICILIO_SOCIAL"],
         requiredDocuments: ["NOTARY"],
         verificationMethod: "Copia autorizada de la escritura de constitución.",
       },
@@ -199,6 +227,24 @@ export function deriveTasks(input: Partial<ProjectProfile>): DerivedTask[] {
         dependencyCodes: ["NOTARY"],
         requiredDocuments: ["REGISTRY"],
         verificationMethod: "Nota de inscripción del Registro Mercantil.",
+      },
+      {
+        code: "LIBROS_LEGALIZACION",
+        title: "Legalización de libros" + (profile.founders === 1 ? " y libro-registro de socio único" : ""),
+        detail:
+          "Legalizar los libros obligatorios en el Registro Mercantil. " +
+          (profile.founders === 1
+            ? "Además, en una sociedad unipersonal los contratos entre el socio único y la sociedad se "
+              + "documentan por escrito y se hacen constar en un libro-registro, y se recogen en la memoria "
+              + "anual. Si hay licencia de software, préstamo o cualquier acuerdo con la sociedad, esto deja "
+              + "de ser teórico desde el primer día."
+            : "Comprueba con la notaría o el asesor cuáles corresponden a tu caso."),
+        authority: "Registro Mercantil",
+        status: "NOT_STARTED",
+        priority: 90,
+        dependencyCodes: ["REGISTRY"],
+        requiredDocuments: ["REGISTRY"],
+        verificationMethod: "Justificante de legalización de los libros.",
       },
       {
         code: "NIF_DEFINITIVO",
@@ -375,6 +421,33 @@ export function deriveTasks(input: Partial<ProjectProfile>): DerivedTask[] {
     dependencyCodes: ["CENSAL_036", "RETA"],
     requiredDocuments: [],
     verificationMethod: "Todas las tareas obligatorias completadas con evidencia.",
+  });
+
+  /**
+   * El paso que cierra el propósito de BUROINSTANT.
+   *
+   * La aplicación no existe para explicar cómo se crea una empresa: existe para
+   * que quede creada y facture. Sin este trámite el itinerario terminaba en
+   * «inicio operativo», que no es comprobable ni lo lee nadie como una meta.
+   *
+   * No se puede emitir antes de tiempo, y por eso depende del alta censal —y en
+   * una sociedad, del NIF definitivo—. La fecha de la factura no puede ser
+   * anterior a la de inicio de actividad declarada en el 036.
+   */
+  tasks.push({
+    code: "PRIMERA_FACTURA",
+    title: "Emitir la primera factura",
+    detail:
+      "Antes de emitirla tienen que ser ciertas cuatro cosas: NIF definitivo concedido, alta censal "
+      + "presentada con su fecha de inicio de actividad, epígrafe confirmado contra la fuente oficial y "
+      + "régimen de IVA determinado. El contenido obligatorio de la factura lo fija el Reglamento de "
+      + "facturación: compruébalo en la fuente antes de emitirla.",
+    authority: "La empresa",
+    status: "NOT_STARTED",
+    priority: 210,
+    dependencyCodes: isCompany ? ["CENSAL_036", "NIF_DEFINITIVO"] : ["CENSAL_036"],
+    requiredDocuments: ["INVOICE"],
+    verificationMethod: "Factura emitida, con fecha no anterior al inicio de actividad declarado.",
   });
 
   return tasks.sort((a, b) => a.priority - b.priority);
