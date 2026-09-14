@@ -48,6 +48,21 @@ export type Bloqueo = {
   estado: string;
 };
 
+/**
+ * Un bloque propio de un trámite concreto.
+ *
+ * La carpeta es la misma para todos —datos, papeles, bloqueos—, pero algunos
+ * pasos necesitan llevar algo que sólo les pertenece: las cinco denominaciones
+ * que se piden al RMC, mañana los epígrafes candidatos. Iban en un documento
+ * aparte, y quien imprimía la carpeta llegaba al mostrador sin ellos.
+ */
+export type ApartadoDeCarpeta = {
+  titulo: string;
+  lineas: string[];
+  /** Una nota al pie del bloque, cuando hace falta explicar un plazo o un límite. */
+  nota?: string;
+};
+
 export type Carpeta = {
   code: string;
   title: string;
@@ -62,6 +77,8 @@ export type Carpeta = {
   papelesQueFaltan: PapelDeCarpeta[];
   bloqueadoPor: Bloqueo[];
   advertencias: string[];
+  /** Bloques propios de este trámite, si los tiene. */
+  apartados: ApartadoDeCarpeta[];
   listoParaPresentar: boolean;
   verificacion: string;
 };
@@ -96,6 +113,11 @@ const DATOS: Record<ProfileKey, { etiqueta: string; comoSeConsigue: string }> = 
     etiqueta: "Fecha de aprobación de las cuentas",
     comoSeConsigue:
       "El día en que la junta general aprobó las últimas cuentas anuales. Desde ella cuenta el mes para depositarlas.",
+  },
+  denomination_certified_at: {
+    etiqueta: "Fecha de la certificación de denominación",
+    comoSeConsigue:
+      "El día en que el Registro Mercantil Central expidió la certificación negativa. Desde ella corren los tres meses para firmar y los seis de reserva.",
   },
 };
 
@@ -159,10 +181,19 @@ export type EntradaDeCarpeta = {
   profile: Partial<Record<ProfileKey, unknown>>;
   /** Documentos ya aportados a ESTE trámite, por categoría. */
   documentos: Array<{ id: string; category: DocumentCategory; displayName: string }>;
+  /** Bloques propios de este trámite, si el repositorio ha podido armarlos. */
+  apartados?: ApartadoDeCarpeta[];
+  /**
+   * Huecos propios del trámite, además de los del perfil. Un apartado vacío
+   * —ninguna denominación propuesta— no es un adorno que falta: es el trámite
+   * sin poder presentarse.
+   */
+  huecosExtra?: HuecoDeCarpeta[];
 };
 
 export function buildCarpeta(entrada: EntradaDeCarpeta): Carpeta {
   const { task, itinerario, profile, documentos } = entrada;
+  const apartados = entrada.apartados ?? [];
 
   const pedidos = DATOS_POR_TRAMITE[task.code] ?? TODOS;
   const datos: DatoDeCarpeta[] = [];
@@ -175,6 +206,7 @@ export function buildCarpeta(entrada: EntradaDeCarpeta): Carpeta {
       datos.push({ campo, etiqueta: DATOS[campo].etiqueta, valor: texto });
     }
   }
+  for (const hueco of entrada.huecosExtra ?? []) faltan.push(hueco);
 
   const porCategoria = new Map<string, { id: string; displayName: string }>();
   for (const documento of documentos) {
@@ -258,6 +290,7 @@ export function buildCarpeta(entrada: EntradaDeCarpeta): Carpeta {
     papelesQueFaltan,
     bloqueadoPor,
     advertencias,
+    apartados,
     listoParaPresentar,
     verificacion: task.verificationMethod,
   };

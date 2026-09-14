@@ -40,11 +40,19 @@ const patchSchema = z
       .regex(/^\d{4}-\d{2}-\d{2}$/, "Formato AAAA-MM-DD")
       .nullable()
       .optional(),
+    // Fecha de expedición de la certificación negativa del RMC. De ella cuelgan
+    // los tres meses para otorgar escritura y los seis de reserva.
+    denomination_certified_at: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "Formato AAAA-MM-DD")
+      .nullable()
+      .optional(),
   })
   .refine(
     (value) =>
       value.activity_start_date !== undefined ||
       value.accounts_approval_date !== undefined ||
+      value.denomination_certified_at !== undefined ||
       value.business_description !== undefined ||
       value.preferred_legal_form !== undefined ||
       value.number_of_founders !== undefined ||

@@ -28,6 +28,7 @@ export const PROFILE_KEYS = [
   "physical_premises",
   "activity_start_date",
   "accounts_approval_date",
+  "denomination_certified_at",
 ] as const;
 
 export type ProfileKey = (typeof PROFILE_KEYS)[number];
@@ -70,10 +71,11 @@ export async function readSnapshotById(projectId: string): Promise<ProjectSnapsh
       preferred_legal_form: string | null;
       activity_start_date: Date | string | null;
       accounts_approval_date: Date | string | null;
+      denomination_certified_at: Date | string | null;
     }>
   >`
     select id, name, case_stage, business_description, preferred_legal_form,
-           activity_start_date, accounts_approval_date
+           activity_start_date, accounts_approval_date, denomination_certified_at
     from business_projects where id = ${projectId} limit 1
   `;
   if (!project) throw new ProjectAccessError();
@@ -105,6 +107,9 @@ export async function readSnapshotById(projectId: string): Promise<ProjectSnapsh
       // La fecha en que la junta aprobó las últimas cuentas. Sin ella el
       // depósito sólo puede mostrarse como límite legal, no como tu plazo.
       accounts_approval_date: comoFecha(project.accounts_approval_date),
+      // Fecha de expedición de la certificación negativa del RMC. De ella
+      // cuelgan los tres meses para firmar y los seis de reserva.
+      denomination_certified_at: comoFecha(project.denomination_certified_at),
     },
   };
 }
@@ -139,6 +144,7 @@ export type ProfilePatch = Partial<{
   physical_premises: boolean;
   activity_start_date: string | null;
   accounts_approval_date: string | null;
+  denomination_certified_at: string | null;
 }>;
 
 /**
@@ -267,6 +273,14 @@ export async function applyProfilePatch(input: {
     await sql`
       update business_projects
       set accounts_approval_date = ${patch.accounts_approval_date}
+      where id = ${projectId}
+    `;
+  }
+
+  if (patch.denomination_certified_at !== undefined) {
+    await sql`
+      update business_projects
+      set denomination_certified_at = ${patch.denomination_certified_at}
       where id = ${projectId}
     `;
   }

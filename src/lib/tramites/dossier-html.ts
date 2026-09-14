@@ -107,6 +107,14 @@ export function renderCarpetaHtml(carpeta: CarpetaCompleta): string {
     );
   }
 
+  // Los bloques propios del trámite van arriba, antes de los datos comunes:
+  // en la denominación son lo que se lleva al mostrador, no un anexo.
+  for (const apartado of carpeta.apartados ?? []) {
+    partes.push(`<h2>${escaparHtml(apartado.titulo)}</h2>`);
+    partes.push(lista(apartado.lineas.map((linea) => escaparHtml(linea))));
+    if (apartado.nota) partes.push(`<div class="aviso">${escaparHtml(apartado.nota)}</div>`);
+  }
+
   if (carpeta.datos.length > 0) {
     partes.push("<h2>Datos que vas a necesitar a mano</h2>");
     partes.push(
