@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveTasks, type ProjectProfile } from "@/lib/task-engine";
+import { deriveTasks, sourceKindFor, type ProjectProfile } from "@/lib/task-engine";
 import { buildCompleteness } from "@/lib/completeness";
 import { REGULATORY_FACTS, fact, isBindingFact } from "@/lib/regulatory-facts";
 
@@ -207,5 +207,75 @@ describe("los cuatro trámites que la práctica exige", () => {
         }
       }
     }
+  });
+});
+
+/**
+ * Hueco 7: había trámites sin enlace a fuente oficial, y la carpeta avisaba de
+ * todos por igual. No todos podían tener enlace: abrir una cuenta en el banco no
+ * es un procedimiento administrativo, y la licencia municipal depende de tu
+ * ayuntamiento. Mezclarlos convertía la advertencia en ruido.
+ */
+describe("de dónde sale cada trámite", () => {
+  const TODO_ACTIVO = {
+    legalForm: "SLU" as const,
+    founders: 1,
+    hasPremises: true,
+    publicConcurrence: true,
+    willHireWorkers: true,
+    euOperations: true,
+    nonEuOperations: true,
+    regulatedActivity: true,
+  };
+
+  it("todo trámite queda clasificado", () => {
+    for (const tarea of deriveTasks(TODO_ACTIVO)) {
+      expect(["OFICIAL", "SIN_ADMINISTRACION", "LOCAL"], tarea.code).toContain(tarea.sourceKind);
+    }
+  });
+
+  it("todo trámite OFICIAL lleva su enlace, y es https a una sede pública", () => {
+    const sinEnlace: string[] = [];
+    for (const tarea of deriveTasks(TODO_ACTIVO)) {
+      if (tarea.sourceKind !== "OFICIAL") continue;
+      if (!tarea.sourceUrl) {
+        sinEnlace.push(tarea.code);
+        continue;
+      }
+      expect(tarea.sourceUrl, tarea.code).toMatch(/^https:\/\//);
+      expect(new URL(tarea.sourceUrl).host, tarea.code).toMatch(/\.(gob\.es|boe\.es|rmc\.es)$/);
+    }
+    // Este es el hueco 7 en una línea: si algún día vuelve a haber un trámite
+    // ante una administración sin decir dónde se presenta, esta lista lo nombra.
+    expect(sinEnlace).toEqual([]);
+  });
+
+  it("un paso sin administración detrás no finge tener sede", () => {
+    const banco = deriveTasks(TODO_ACTIVO).find((t) => t.code === "BANCO_CUENTA");
+    expect(banco?.sourceKind).toBe("SIN_ADMINISTRACION");
+    expect(banco?.sourceUrl).toBeUndefined();
+  });
+
+  it("la licencia municipal es local: no se enlaza el ayuntamiento de otro", () => {
+    const licencia = deriveTasks(TODO_ACTIVO).find((t) => t.code === "LOCAL_LICENCIA");
+    expect(licencia?.sourceKind).toBe("LOCAL");
+    expect(licencia?.sourceUrl).toBeUndefined();
+  });
+
+  it("la denominación enlaza al Registro Mercantil Central", () => {
+    const denominacion = deriveTasks(TODO_ACTIVO).find((t) => t.code === "COMPANY_NAME");
+    expect(denominacion?.sourceUrl).toContain("rmc.es");
+  });
+
+  it("escritura, inscripción y estatutos citan la misma ley, que es la que los rige", () => {
+    const tareas = deriveTasks(TODO_ACTIVO);
+    for (const code of ["BYLAWS", "NOTARY", "REGISTRY"]) {
+      expect(tareas.find((t) => t.code === code)?.sourceUrl, code).toContain("BOE-A-2010-10544");
+    }
+  });
+
+  it("un trámite que el motor no clasifique se trata como oficial sin enlace", () => {
+    // Es el caso que debe seguir avisando: nunca se degrada en silencio.
+    expect(sourceKindFor("UN_TRAMITE_QUE_NO_EXISTE")).toBe("OFICIAL");
   });
 });

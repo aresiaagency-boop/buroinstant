@@ -213,7 +213,24 @@ export function buildCarpeta(entrada: EntradaDeCarpeta): Carpeta {
       `El fundamento de este trámite está pendiente de comprobar contra la fuente oficial vigente: ${task.pendingVerification}`,
     );
   }
-  if (!task.sourceUrl) {
+  /*
+   * La advertencia de fuente sólo tiene sentido donde hay una administración
+   * detrás. Antes se lanzaba siempre que faltaba la URL, y así avisaba de abrir
+   * una cuenta en el banco o de reunir el DNI —pasos que no tienen sede oficial
+   * y nunca la van a tener—. Una advertencia que sale en todas partes deja de
+   * leerse, y entonces tampoco se lee donde importa.
+   */
+  if (task.sourceKind === "SIN_ADMINISTRACION") {
+    advertencias.push(
+      "Este paso no se presenta ante ninguna administración: lo resuelves tú o un tercero privado. " +
+        "No hay sede oficial que consultar, y por eso no hay enlace.",
+    );
+  } else if (task.sourceKind === "LOCAL") {
+    advertencias.push(
+      `La fuente de este trámite es la de tu administración competente —${task.authority}—, y cambia de un sitio a otro. ` +
+        "Búscala en su sede electrónica: enlazar aquí la de otro municipio sería peor que no enlazar ninguna.",
+    );
+  } else if (!task.sourceUrl) {
     advertencias.push(
       "Este trámite no lleva enlace a fuente oficial verificada. Comprueba el procedimiento vigente antes de presentar nada.",
     );

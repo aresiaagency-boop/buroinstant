@@ -14,6 +14,7 @@ function tarea(parcial: Partial<DerivedTask> = {}): DerivedTask {
     dependencyCodes: [],
     requiredDocuments: ["TAX"],
     verificationMethod: "Justificante sellado.",
+    sourceKind: "OFICIAL",
     sourceUrl: "https://sede.agenciatributaria.gob.es/",
     ...parcial,
   };
@@ -166,6 +167,64 @@ describe("contra el itinerario real, no contra uno de mentira", () => {
       // Sin ningún dato respondido, ninguna carpeta puede estar lista.
       expect(carpeta.listoParaPresentar).toBe(false);
       expect(siguientePaso(carpeta)).not.toBe("");
+    }
+  });
+});
+
+/**
+ * La advertencia de fuente sólo sirve si no sale en todas partes. Antes saltaba
+ * siempre que faltaba la URL, incluida la de abrir una cuenta en el banco.
+ */
+describe("la advertencia de fuente distingue de qué tipo de paso se trata", () => {
+  it("un paso sin administración detrás lo dice, y no suena a fallo", () => {
+    const carpeta = buildCarpeta(
+      entrada({ task: tarea({ code: "BANCO_CUENTA", sourceKind: "SIN_ADMINISTRACION", sourceUrl: undefined }) }),
+    );
+    expect(carpeta.advertencias.join(" ")).toContain("no se presenta ante ninguna administración");
+    expect(carpeta.advertencias.join(" ")).not.toContain("no lleva enlace a fuente oficial");
+  });
+
+  it("un trámite local remite a tu administración competente, con su nombre", () => {
+    const carpeta = buildCarpeta(
+      entrada({
+        task: tarea({
+          code: "LOCAL_LICENCIA",
+          sourceKind: "LOCAL",
+          authority: "Ayuntamiento competente",
+          sourceUrl: undefined,
+        }),
+      }),
+    );
+    const texto = carpeta.advertencias.join(" ");
+    expect(texto).toContain("Ayuntamiento competente");
+    expect(texto).toContain("sede electrónica");
+  });
+
+  it("un trámite oficial sin enlace sí sigue avisando: ése es el caso de verdad", () => {
+    const carpeta = buildCarpeta(entrada({ task: tarea({ sourceKind: "OFICIAL", sourceUrl: undefined }) }));
+    expect(carpeta.advertencias.join(" ")).toContain("no lleva enlace a fuente oficial");
+  });
+
+  it("un trámite oficial con enlace no genera ninguna advertencia de fuente", () => {
+    const carpeta = buildCarpeta(entrada({ task: tarea({ sourceKind: "OFICIAL" }) }));
+    expect(carpeta.advertencias.join(" ")).not.toContain("fuente oficial");
+    expect(carpeta.advertencias.join(" ")).not.toContain("ninguna administración");
+  });
+
+  it("ningún trámite real del itinerario avisa ya de que le falta la fuente", () => {
+    const itinerario = deriveTasks({
+      legalForm: "SLU",
+      founders: 1,
+      hasPremises: true,
+      publicConcurrence: true,
+      willHireWorkers: true,
+      euOperations: true,
+      nonEuOperations: true,
+      regulatedActivity: true,
+    });
+    for (const task of itinerario) {
+      const carpeta = buildCarpeta({ task, itinerario, profile: {}, documentos: [] });
+      expect(carpeta.advertencias.join(" "), task.code).not.toContain("no lleva enlace a fuente oficial");
     }
   });
 });

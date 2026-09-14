@@ -22,7 +22,17 @@ describe("catálogo de obligaciones", () => {
   });
 
   it("todas las fuentes son instituciones estatales, nunca un tercero", () => {
-    const permitidos = ["sede.agenciatributaria.gob.es", "www.boe.es", "www.seg-social.es", "portal.seg-social.gob.es", "www.paeelectronico.es"];
+    // La lista se amplía sólo con instituciones públicas, y de una en una. El
+    // Registro Mercantil Central es una institución oficial dependiente del
+    // Ministerio de Justicia; no es un despacho ni una web de asesoría.
+    const permitidos = [
+      "sede.agenciatributaria.gob.es",
+      "www.boe.es",
+      "www.seg-social.es",
+      "portal.seg-social.gob.es",
+      "www.paeelectronico.es",
+      "www.rmc.es",
+    ];
     for (const item of REGULATORY_FACTS) {
       for (const source of item.sources) {
         const host = new URL(source.url).host;

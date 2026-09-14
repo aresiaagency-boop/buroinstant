@@ -21,6 +21,7 @@ function carpetaCon(overrides: {
     dependencyCodes: [],
     requiredDocuments: ["TAX"],
     verificationMethod: "Justificante sellado.",
+    sourceKind: "OFICIAL",
     sourceUrl: overrides.sourceUrl,
   };
   const base = buildCarpeta({

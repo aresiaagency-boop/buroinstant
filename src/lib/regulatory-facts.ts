@@ -289,6 +289,153 @@ export const REGULATORY_FACTS: RegulatoryFact[] = [
     ],
   },
   {
+    key: "RMC_DENOMINACION",
+    statement:
+      "La certificación negativa de denominación social se solicita al Registro Mercantil Central. En cada solicitud «se consignarán hasta un máximo de cinco denominaciones por orden de preferencia». La certificación «tendrá una vigencia de TRES MESES a efectos de otorgamiento de escritura, contados desde la fecha de su expedición», y la denominación «quedará registrada a nombre del interesado o beneficiario de la misma durante el plazo de SEIS MESES, contados desde la fecha de expedición».",
+    authority: "OFFICIAL_SOURCE",
+    lastVerifiedAt: "2026-09-14",
+    confidence: 0.95,
+    requiresLiveVerification: false,
+    productRule:
+      "Una denominación no se da nunca por disponible sin la certificación emitida. Los dos plazos son distintos y no se confunden: tres meses para firmar ante notario, seis de reserva.",
+    sources: [
+      {
+        authority: "Registro Mercantil Central",
+        title: "Denominaciones sociales · certificación negativa",
+        url: "https://www.rmc.es/DenominacionesSociales.aspx",
+      },
+    ],
+  },
+  {
+    key: "LSC_CONSTITUCION_ESCRITURA",
+    statement:
+      "El artículo 20 de la Ley de Sociedades de Capital establece que «la constitución de las sociedades de capital exigirá escritura pública, que deberá inscribirse en el Registro Mercantil».",
+    authority: "LAW",
+    lastVerifiedAt: "2026-09-14",
+    confidence: 0.95,
+    requiresLiveVerification: false,
+    productRule:
+      "La escritura y la inscripción son dos pasos, no uno. Firmada la escritura la sociedad todavía no está inscrita, y el expediente no puede dar por hecha la inscripción con la copia de la escritura.",
+    sources: [
+      {
+        authority: "BOE",
+        title: "Ley de Sociedades de Capital, texto consolidado",
+        url: "https://www.boe.es/buscar/act.php?id=BOE-A-2010-10544",
+      },
+    ],
+  },
+  {
+    key: "NIF_ENTIDAD",
+    statement:
+      "Las personas jurídicas y entidades sin personalidad jurídica tienen la obligación de disponer de NIF cuando vayan a realizar operaciones con trascendencia tributaria. La solicitud se hace con el modelo 036.",
+    authority: "OFFICIAL_SOURCE",
+    lastVerifiedAt: "2026-09-14",
+    confidence: 0.9,
+    requiresLiveVerification: false,
+    productRule:
+      "El NIF provisional y el definitivo son dos momentos del mismo procedimiento: el provisional permite operar antes de la inscripción, el definitivo llega después de ella. Ninguno se da por concedido sin la comunicación de la AEAT.",
+    sources: [
+      {
+        authority: "AEAT",
+        title: "NIF de persona jurídica y entidad",
+        url: "https://sede.agenciatributaria.gob.es/Sede/censos-nif-domicilio-fiscal/solicitar-nif/nif-persona-juridica-entidad.html",
+      },
+    ],
+  },
+  {
+    key: "LEGALIZACION_LIBROS",
+    statement:
+      "La Instrucción de 12 de febrero de 2015 de la Dirección General de los Registros y del Notariado, sobre legalización de libros de los empresarios, establece que la presentación se hace «dentro de los cuatro meses siguientes al cierre del ejercicio social» y que «la presentación de dichos libros para su legalización en el Registro Mercantil competente por razón del domicilio, deberá ser por vía telemática». Para los ejercicios iniciados a partir del 29 de septiembre de 2013 no cabe la legalización en papel ni en soporte electrónico no presentado por vía telemática.",
+    authority: "OFFICIAL_SOURCE",
+    lastVerifiedAt: "2026-09-14",
+    confidence: 0.9,
+    requiresLiveVerification: false,
+    productRule:
+      "El plazo se cuenta desde el cierre del ejercicio, no desde la junta ni desde el depósito: es anterior a ambos y se confunde con ellos con facilidad. El calendario lo muestra como límite calculado sobre un ejercicio cerrado a 31 de diciembre.",
+    sources: [
+      {
+        authority: "BOE",
+        title: "Instrucción de 12 de febrero de 2015, sobre legalización de libros de los empresarios",
+        url: "https://www.boe.es/buscar/doc.php?id=BOE-A-2015-1481",
+      },
+    ],
+  },
+  {
+    key: "REGLAMENTO_FACTURACION",
+    statement:
+      "El Real Decreto 1619/2012, de 30 de noviembre, aprueba el Reglamento por el que se regulan las obligaciones de facturación. Es la norma que fija el contenido obligatorio de una factura.",
+    authority: "LAW",
+    lastVerifiedAt: "2026-09-14",
+    confidence: 0.92,
+    requiresLiveVerification: false,
+    productRule:
+      "El contenido de la factura se cita desde el Reglamento vigente, nunca de memoria ni de una plantilla. La aplicación enlaza la norma y no afirma qué campos lleva una factura concreta.",
+    sources: [
+      {
+        authority: "BOE",
+        title: "Real Decreto 1619/2012, Reglamento de obligaciones de facturación",
+        url: "https://www.boe.es/buscar/act.php?id=BOE-A-2012-14696",
+      },
+    ],
+  },
+  {
+    key: "FACTURA_ELECTRONICA_B2B",
+    statement:
+      "El Real Decreto 238/2026, de 25 de marzo, desarrolla el sistema de facturación electrónica obligatoria entre empresarios y profesionales y modifica el Reglamento de facturación. Entró en vigor a los veinte días de su publicación. Su aplicación efectiva se cuenta desde la entrada en vigor de la orden ministerial de desarrollo: doce meses después para «empresarios y profesionales cuyo volumen de operaciones haya excedido de 8 millones de euros durante el año natural inmediato anterior», y veinticuatro meses después para «el resto de los empresarios y profesionales».",
+    authority: "LAW",
+    effectiveDate: "2026-04-20",
+    lastVerifiedAt: "2026-09-14",
+    confidence: 0.75,
+    requiresLiveVerification: true,
+    verificationNote:
+      "La fecha desde la que obliga depende de la entrada en vigor de la orden ministerial de desarrollo, que no está confirmada aquí. Comprueba en el BOE si ya se ha publicado antes de contar los doce o veinticuatro meses.",
+    productRule:
+      "Se informa de que viene y de en qué tramo cae la empresa, nunca de una fecha concreta de obligatoriedad. Una empresa que empieza hoy no está obligada todavía, y decirle lo contrario la haría gastar en algo que aún no necesita.",
+    sources: [
+      {
+        authority: "BOE",
+        title: "Real Decreto 238/2026, de facturación electrónica obligatoria entre empresarios",
+        url: "https://www.boe.es/diario_boe/txt.php?id=BOE-A-2026-7295",
+      },
+    ],
+  },
+  {
+    key: "ROI_OPERADORES_INTRACOMUNITARIOS",
+    statement:
+      "Deben estar incluidas en el Registro de Operadores Intracomunitarios «las personas o entidades que vayan a efectuar entregas o adquisiciones intracomunitarias de bienes sujetas a dicho tributo» y «los empresarios o profesionales que sean destinatarios de servicios prestados por empresarios o profesionales no establecidos en el territorio» de aplicación del IVA.",
+    authority: "OFFICIAL_SOURCE",
+    lastVerifiedAt: "2026-09-14",
+    confidence: 0.9,
+    requiresLiveVerification: false,
+    productRule:
+      "El alta en el registro y la validez del NIF-IVA en VIES son cosas distintas: no se factura sin IVA a un cliente europeo hasta comprobar el NIF en VIES.",
+    sources: [
+      {
+        authority: "AEAT",
+        title: "Registro de operadores intracomunitarios",
+        url: "https://sede.agenciatributaria.gob.es/Sede/censos-nif-domicilio-fiscal/quien-debe-estar-censado/registro-operadores-intracomunitarios.html",
+      },
+    ],
+  },
+  {
+    key: "EORI_OPERADORES",
+    statement:
+      "El número EORI identifica a los operadores económicos ante las autoridades aduaneras. La Agencia Tributaria mantiene la información sobre quién debe solicitarlo y cómo se obtiene o se asocia al NIF.",
+    authority: "OFFICIAL_SOURCE",
+    lastVerifiedAt: "2026-09-14",
+    confidence: 0.85,
+    requiresLiveVerification: false,
+    productRule:
+      "No se afirma que una operación concreta exija EORI: se enlaza la fuente y se deja la comprobación al caso, porque depende de qué se mueve y hacia dónde.",
+    sources: [
+      {
+        authority: "AEAT",
+        title: "Registro e identificación de operadores económicos (EORI)",
+        url: "https://sede.agenciatributaria.gob.es/Sede/censos-nif-domicilio-fiscal/quien-debe-estar-censado/registro-identificacion-operadores-economicos/registro-eori.html",
+      },
+    ],
+  },
+  {
     key: "PLAZO_RESUMEN_ANUAL_RETENCIONES",
     statement:
       "El artículo 5 de la Orden EHA/3127/2009 fija el plazo del resumen anual de retenciones, modelo 190: «la presentación del resumen anual de retenciones e ingresos a cuenta, modelo 190, se realizará en los primeros veinte días naturales del mes de enero de cada año»; «no obstante, el plazo de presentación será el comprendido entre el 1 de enero y el 31 de enero del año siguiente al que corresponde el resumen anual» cuando la declaración se presente por vía telemática, en soporte legible por ordenador o en impreso del módulo de la AEAT. La presentación por internet es la vía ordinaria, de modo que el plazo aplicable es el que termina el 31 de enero. Para el resumen del ejercicio 2025 la Agencia Tributaria publica el plazo «del 1 de enero al 2 de febrero de 2026», porque el 31 de enero de 2026 cae en sábado.",

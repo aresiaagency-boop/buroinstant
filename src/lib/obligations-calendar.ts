@@ -255,6 +255,25 @@ export const OBLIGATION_CATALOG: ObligationDefinition[] = [
     applies: (profile) => profile.willHireWorkers || isCompany(profile.legalForm),
   },
   {
+    code: "LIBROS_LEGALIZACION",
+    model: null,
+    title: "Legalización de los libros en el Registro Mercantil",
+    detail:
+      "Los libros obligatorios se presentan por vía telemática dentro de los cuatro meses siguientes al " +
+      "cierre del ejercicio. Es anterior a la junta y al depósito de cuentas, y se confunde con ellos: " +
+      "cuando llega el depósito, este plazo ya ha pasado.",
+    authority: "Registro Mercantil",
+    periodicity: "ANUAL",
+    responsible: "ADMINISTRADOR",
+    factKey: "LEGALIZACION_LIBROS",
+    windowRule: "Dentro de los cuatro meses siguientes al cierre del ejercicio social, por vía telemática.",
+    schedule: { kind: "ANNUAL", month: 4, day: 30, periodOffset: -1 },
+    outerLimit:
+      "El 30 de abril sale de contar cuatro meses desde un ejercicio cerrado a 31 de diciembre. " +
+      "Con otro cierre, cuenta cuatro meses desde el tuyo.",
+    applies: (profile) => isCompany(profile.legalForm),
+  },
+  {
     code: "JUNTA_ORDINARIA",
     model: null,
     title: "Junta general ordinaria · aprobación de las cuentas",

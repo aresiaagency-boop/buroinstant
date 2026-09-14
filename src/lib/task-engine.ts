@@ -55,6 +55,22 @@ export type DerivedTask = {
   verificationMethod: string;
   sourceUrl?: string;
   pendingVerification?: string;
+  /**
+   * De dónde sale el procedimiento de este paso.
+   *
+   * No todos los pasos tienen una sede oficial detrás, y tratarlos como si la
+   * tuvieran producía una advertencia falsa: la carpeta decía «no lleva enlace a
+   * fuente oficial verificada» de abrir una cuenta en el banco, que no es un
+   * trámite administrativo y nunca va a tener una. La advertencia perdía valor
+   * justo donde sí importaba.
+   *
+   *   · `OFICIAL` — hay norma o sede estatal, y `sourceUrl` la enlaza.
+   *   · `SIN_ADMINISTRACION` — lo gestionas tú o un tercero privado. No hay
+   *     procedimiento público que enlazar, y eso no es un defecto.
+   *   · `LOCAL` — la fuente existe pero depende de tu municipio o de tu
+   *     organismo sectorial: una URL única sería falsa para casi todos.
+   */
+  sourceKind: "OFICIAL" | "SIN_ADMINISTRACION" | "LOCAL";
 };
 
 export const DEFAULT_PROFILE: ProjectProfile = {
@@ -74,6 +90,55 @@ function sourceFor(key: string) {
   return fact(key)?.sources[0]?.url;
 }
 
+export type SourceKind = DerivedTask["sourceKind"];
+
+/**
+ * De dónde sale cada paso. Una sola tabla, porque la consultan dos sitios: el
+ * motor cuando deriva el itinerario y el repositorio cuando lo relee de la base
+ * de datos. Dos tablas se habrían separado a la primera incorporación.
+ *
+ * Lo que NO está aquí se trata como `OFICIAL` sin enlace, que es el caso que
+ * debe seguir avisando: un trámite ante una administración del que no sabemos
+ * decir dónde se presenta.
+ */
+const FUENTE_POR_TRAMITE: Record<string, SourceKind> = {
+  // Lo gestionas tú, o un particular. No hay sede que enlazar, y no es un fallo.
+  IDENTITY: "SIN_ADMINISTRACION",
+  DOMICILIO_SOCIAL: "SIN_ADMINISTRACION",
+  BANCO_CUENTA: "SIN_ADMINISTRACION",
+  OPERATIVA: "SIN_ADMINISTRACION",
+
+  // La fuente existe, pero es la de TU ayuntamiento o TU organismo sectorial.
+  // Enlazar uno cualquiera sería más engañoso que no enlazar ninguno.
+  LOCAL_LICENCIA: "LOCAL",
+  PUBLICA_CONCURRENCIA: "LOCAL",
+  ACTIVIDAD_REGULADA: "LOCAL",
+
+  // Norma o sede estatal, enlazada en `sourceUrl`.
+  ACTIVITY_CLASSIFICATION: "OFICIAL",
+  COMPANY_NAME: "OFICIAL",
+  BYLAWS: "OFICIAL",
+  CAPITAL: "OFICIAL",
+  BENEFICIAL_OWNERS: "OFICIAL",
+  NOTARY: "OFICIAL",
+  NIF_PROVISIONAL: "OFICIAL",
+  REGISTRY: "OFICIAL",
+  LIBROS_LEGALIZACION: "OFICIAL",
+  NIF_DEFINITIVO: "OFICIAL",
+  CENSAL_036: "OFICIAL",
+  IAE_840_848: "OFICIAL",
+  IAE_EXENCION: "OFICIAL",
+  ROI_VIES: "OFICIAL",
+  EORI: "OFICIAL",
+  RETA: "OFICIAL",
+  SS_INSCRIPCION: "OFICIAL",
+  PRIMERA_FACTURA: "OFICIAL",
+};
+
+export function sourceKindFor(code: string): SourceKind {
+  return FUENTE_POR_TRAMITE[code] ?? "OFICIAL";
+}
+
 /** Ajusta el estado inicial al nivel de verificación del hecho que sostiene la tarea. */
 function statusFor(factKey: string, wanted: TaskStatus): Pick<DerivedTask, "status" | "pendingVerification"> {
   const item = fact(factKey);
@@ -87,7 +152,7 @@ function statusFor(factKey: string, wanted: TaskStatus): Pick<DerivedTask, "stat
 export function deriveTasks(input: Partial<ProjectProfile>): DerivedTask[] {
   const profile: ProjectProfile = { ...DEFAULT_PROFILE, ...input };
   const isCompany = profile.legalForm !== null && profile.legalForm !== "AUTONOMO";
-  const tasks: DerivedTask[] = [];
+  const tasks: Array<Omit<DerivedTask, "sourceKind">> = [];
 
   tasks.push({
     code: "IDENTITY",
@@ -128,6 +193,7 @@ export function deriveTasks(input: Partial<ProjectProfile>): DerivedTask[] {
         dependencyCodes: [],
         requiredDocuments: ["COMPANY_NAME"],
         verificationMethod: "Certificación negativa emitida por el Registro Mercantil Central.",
+      sourceUrl: sourceFor("RMC_DENOMINACION"),
       },
       {
         code: "BYLAWS",
@@ -140,6 +206,7 @@ export function deriveTasks(input: Partial<ProjectProfile>): DerivedTask[] {
         dependencyCodes: ["ACTIVITY_CLASSIFICATION"],
         requiredDocuments: ["BYLAWS"],
         verificationMethod: "Estatutos revisados por profesional antes de la firma.",
+      sourceUrl: sourceFor("LSC_CONSTITUCION_ESCRITURA"),
       },
       {
         code: "DOMICILIO_SOCIAL",
@@ -205,6 +272,7 @@ export function deriveTasks(input: Partial<ProjectProfile>): DerivedTask[] {
         dependencyCodes: ["COMPANY_NAME", "BYLAWS", "CAPITAL", "DOMICILIO_SOCIAL"],
         requiredDocuments: ["NOTARY"],
         verificationMethod: "Copia autorizada de la escritura de constitución.",
+      sourceUrl: sourceFor("LSC_CONSTITUCION_ESCRITURA"),
       },
       {
         code: "NIF_PROVISIONAL",
@@ -216,6 +284,7 @@ export function deriveTasks(input: Partial<ProjectProfile>): DerivedTask[] {
         dependencyCodes: ["NOTARY"],
         requiredDocuments: ["TAX"],
         verificationMethod: "Comunicación de NIF provisional.",
+      sourceUrl: sourceFor("NIF_ENTIDAD"),
       },
       {
         code: "REGISTRY",
@@ -227,6 +296,7 @@ export function deriveTasks(input: Partial<ProjectProfile>): DerivedTask[] {
         dependencyCodes: ["NOTARY"],
         requiredDocuments: ["REGISTRY"],
         verificationMethod: "Nota de inscripción del Registro Mercantil.",
+      sourceUrl: sourceFor("LSC_CONSTITUCION_ESCRITURA"),
       },
       {
         code: "LIBROS_LEGALIZACION",
@@ -245,6 +315,7 @@ export function deriveTasks(input: Partial<ProjectProfile>): DerivedTask[] {
         dependencyCodes: ["REGISTRY"],
         requiredDocuments: ["REGISTRY"],
         verificationMethod: "Justificante de legalización de los libros.",
+      sourceUrl: sourceFor("LEGALIZACION_LIBROS"),
       },
       {
         code: "NIF_DEFINITIVO",
@@ -256,6 +327,7 @@ export function deriveTasks(input: Partial<ProjectProfile>): DerivedTask[] {
         dependencyCodes: ["REGISTRY"],
         requiredDocuments: ["TAX"],
         verificationMethod: "Tarjeta de NIF definitivo.",
+      sourceUrl: sourceFor("NIF_ENTIDAD"),
       },
     );
   }
@@ -319,6 +391,7 @@ export function deriveTasks(input: Partial<ProjectProfile>): DerivedTask[] {
       dependencyCodes: ["CENSAL_036"],
       requiredDocuments: [],
       verificationMethod: "NIF-IVA validado en VIES.",
+    sourceUrl: sourceFor("ROI_OPERADORES_INTRACOMUNITARIOS"),
     });
   }
 
@@ -333,6 +406,7 @@ export function deriveTasks(input: Partial<ProjectProfile>): DerivedTask[] {
       dependencyCodes: ["CENSAL_036"],
       requiredDocuments: [],
       verificationMethod: "Confirmación del registro aduanero.",
+    sourceUrl: sourceFor("EORI_OPERADORES"),
     });
   }
 
@@ -441,14 +515,20 @@ export function deriveTasks(input: Partial<ProjectProfile>): DerivedTask[] {
       "Antes de emitirla tienen que ser ciertas cuatro cosas: NIF definitivo concedido, alta censal "
       + "presentada con su fecha de inicio de actividad, epígrafe confirmado contra la fuente oficial y "
       + "régimen de IVA determinado. El contenido obligatorio de la factura lo fija el Reglamento de "
-      + "facturación: compruébalo en la fuente antes de emitirla.",
+      + "facturación: compruébalo en la fuente antes de emitirla. Aparte, el Real Decreto 238/2026 "
+      + "desarrolla la factura electrónica obligatoria entre empresarios: todavía no obliga a una "
+      + "empresa que empieza —su calendario se cuenta desde una orden ministerial de desarrollo—, "
+      + "pero conviene elegir herramienta sabiendo que llega.",
     authority: "La empresa",
     status: "NOT_STARTED",
     priority: 210,
     dependencyCodes: isCompany ? ["CENSAL_036", "NIF_DEFINITIVO"] : ["CENSAL_036"],
     requiredDocuments: ["INVOICE"],
     verificationMethod: "Factura emitida, con fecha no anterior al inicio de actividad declarado.",
+  sourceUrl: sourceFor("REGLAMENTO_FACTURACION"),
   });
 
-  return tasks.sort((a, b) => a.priority - b.priority);
+  return tasks
+    .map((task) => ({ ...task, sourceKind: sourceKindFor(task.code) }))
+    .sort((a, b) => a.priority - b.priority);
 }

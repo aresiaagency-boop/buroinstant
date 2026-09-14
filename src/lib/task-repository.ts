@@ -1,5 +1,11 @@
 import { db, toDatabaseJson } from "@/lib/db";
-import { deriveTasks, type DerivedTask, type ProjectProfile, type TaskStatus } from "@/lib/task-engine";
+import {
+  deriveTasks,
+  sourceKindFor,
+  type DerivedTask,
+  type ProjectProfile,
+  type TaskStatus,
+} from "@/lib/task-engine";
 import { buildCompleteness, type CompletenessReport, type FieldGap } from "@/lib/completeness";
 import type { Actor } from "@/types/domain";
 import { ensureActorWorkspace } from "@/lib/repository";
@@ -242,6 +248,9 @@ export async function listTasks(actor: Actor, projectId: string): Promise<Derive
     dependencyCodes: row.dependency_codes ?? [],
     requiredDocuments: Array.isArray(row.required_documents) ? (row.required_documents as string[]) : [],
     verificationMethod: row.verification_method ?? "",
+    // No se guarda en la fila: es conocimiento del motor, no dato del usuario.
+    // Guardarlo dejaría trámites viejos clasificados con la tabla de entonces.
+    sourceKind: sourceKindFor(row.code),
     sourceUrl: row.source_url ?? undefined,
     pendingVerification: row.pending_verification ?? undefined,
   }));
