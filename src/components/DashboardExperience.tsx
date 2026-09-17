@@ -499,6 +499,39 @@ export function DashboardExperience({
     emitOrb({ action: "conversation", intensity: state === "manifesting" ? "high" : "medium", state, message });
   }
 
+  /**
+   * El extractor de reglas de siempre, como red.
+   *
+   * Sin clave de proveedor no se finge un asesor: se dice que el razonamiento
+   * no está disponible y se sigue sacando datos de la frase, que es lo que
+   * BUROINSTANT sabía hacer antes y sigue sabiendo.
+   */
+  async function enviarPorReglas(text: string, aviso?: string) {
+    const response = await fetch("/api/agent/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, inputType: "TEXT" }),
+    });
+    const result = (await response.json()) as {
+      message?: string;
+      suggestedNextQuestion?: string;
+      extractedFields?: ExtractedField[];
+      persistence?: string;
+      error?: string;
+    };
+    if (!response.ok) throw new Error(result.error ?? "REQUEST_FAILED");
+    transition("validating", "Comprobando los datos extraídos");
+    setPendingFields(result.extractedFields ?? []);
+    setMessages((current) => [
+      ...current,
+      {
+        role: "assistant",
+        text: `${result.message ?? "He procesado tu mensaje"} ${result.suggestedNextQuestion ?? ""}`.trim(),
+      },
+    ]);
+    setNotice(aviso ?? "Entrada procesada sin razonamiento: falta la clave del proveedor de IA.");
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const text = input.trim();
@@ -509,32 +542,71 @@ export function DashboardExperience({
     transition("thinking", "Ordenando tu intención");
 
     try {
-      const response = await fetch("/api/agent/chat", {
+      /*
+       * Primero el asesor: entiende una instrucción cualquiera con el
+       * expediente delante. Si no hay proveedor de IA configurado, se cae al
+       * extractor de reglas de siempre —que es peor, pero contesta— en vez de
+       * dejar el orbe mudo.
+       */
+      const response = await fetch("/api/agent/asesor", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, inputType: "TEXT" }),
+        body: JSON.stringify({
+          text,
+          ...(projectId ? { projectId } : {}),
+          historial: messages.slice(-8).map((m) => ({ rol: m.role, texto: m.text })),
+        }),
       });
       const result = (await response.json()) as {
+        texto?: string;
+        propuestas?: Array<{ field: string; value: unknown; porque: string }>;
+        comprobar?: string[];
         message?: string;
-        suggestedNextQuestion?: string;
-        extractedFields?: ExtractedField[];
-        persistence?: string;
         error?: string;
       };
-      if (!response.ok) throw new Error(result.error ?? "REQUEST_FAILED");
-      transition("validating", "Comprobando los datos extraídos");
-      setPendingFields(result.extractedFields ?? []);
+
+      if (!response.ok) {
+        if (result.error === "AI_PROVIDER_NOT_CONFIGURED") {
+          await enviarPorReglas(text, result.message);
+          return;
+        }
+        throw new Error(result.error ?? "REQUEST_FAILED");
+      }
+
+      transition("validating", "Contrastando con tu expediente");
+
+      // Las propuestas entran en la misma bandeja de confirmación que ya
+      // existía: el asesor propone, la persona confirma. Un dato con
+      // consecuencia legal no se aplica porque lo diga un chat.
+      setPendingFields(
+        (result.propuestas ?? []).map((propuesta) => ({
+          field: propuesta.field,
+          value: propuesta.value,
+          confidence: 0.8,
+          risk: "MEDIUM_RISK" as const,
+          status: "NEEDS_CONFIRMATION" as const,
+          requiresConfirmation: true,
+          source: "WEB_TEXT" as const,
+        })),
+      );
+
+      const comprobar = (result.comprobar ?? []).filter((c) => c.trim().length > 0);
       setMessages((current) => [
         ...current,
         {
           role: "assistant",
-          text: `${result.message ?? "He procesado tu mensaje"} ${result.suggestedNextQuestion ?? ""}`.trim(),
+          text: [
+            result.texto ?? "No he podido componer una respuesta.",
+            comprobar.length > 0 ? `\n\nAntes de actuar, comprueba: ${comprobar.join(" · ")}` : "",
+          ]
+            .join("")
+            .trim(),
         },
       ]);
       setNotice(
-        result.persistence === "PERSISTED"
-          ? "Entrada registrada con trazabilidad"
-          : "Entrada procesada en modo local",
+        (result.propuestas ?? []).length > 0
+          ? `${result.propuestas!.length} cambios propuestos. Revísalos antes de incorporarlos.`
+          : "Respondido sobre tu expediente.",
       );
     } catch {
       transition("warning", "No se pudo procesar el mensaje");
