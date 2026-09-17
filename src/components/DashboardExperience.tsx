@@ -453,6 +453,21 @@ export function DashboardExperience({
         // son parte de lo que la persona dejó a medias, no una pantalla aparte.
         await cargarDenominaciones();
         await cargarProyectos();
+
+        // Y se vuelve al sitio donde lo dejó. Se hace al final, cuando las
+        // secciones ya tienen contenido: moverse a un bloque vacío deja la
+        // vista en un sitio que luego cambia de sitio al llegar los datos.
+        try {
+          const guardada = window.localStorage.getItem(claveDeSeccion());
+          if (guardada) {
+            setSection(guardada);
+            window.setTimeout(() => {
+              document.getElementById(guardada)?.scrollIntoView({ behavior: "auto", block: "start" });
+            }, 120);
+          }
+        } catch {
+          // Sin almacenamiento se empieza por el orbe, como siempre.
+        }
       }
     })();
     return () => {
@@ -535,10 +550,33 @@ export function DashboardExperience({
     }
   }
 
-  /** Lleva la vista a una sección. Los enlaces con # no bastan aquí. */
+  /**
+   * Lleva la vista a una sección, y la recuerda.
+   *
+   * Antes, refrescar devolvía a todo el mundo al principio: estabas en el
+   * archivo subiendo papeles, recargabas, y aparecías en el orbe. El sitio
+   * donde dejaste el expediente es parte del expediente.
+   *
+   * Se guarda por cuenta —la clave lleva el identificador de quien entra—, así
+   * que dos personas en el mismo navegador no se pisan la posición.
+   */
   function goTo(id: string) {
     setSection(id);
+    recordarSeccion(id);
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function claveDeSeccion() {
+    return `buroinstant:seccion:${actor.email || actor.userId || "anonimo"}`;
+  }
+
+  function recordarSeccion(id: string) {
+    try {
+      window.localStorage.setItem(claveDeSeccion(), id);
+    } catch {
+      // Navegación privada o almacenamiento bloqueado: se pierde la posición,
+      // que es molesto, no grave. Nunca puede impedir usar el panel.
+    }
   }
 
   /**
@@ -1678,7 +1716,12 @@ export function DashboardExperience({
                           <ul className="vault-row__files">
                             {aportados.map((documento) => (
                               <li key={documento.id}>
-                                <a href={`/api/expediente/documentos/${documento.id}`} download>
+                                <a
+                                  href={`/api/expediente/documentos/${documento.id}`}
+                                  download
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
                                   {documento.displayName} <span aria-hidden="true">↓</span>
                                 </a>
                                 <small>{tamanoLegible(documento.sizeBytes)}</small>
@@ -1917,7 +1960,12 @@ export function DashboardExperience({
                         <ul className="itinerary-row__files">
                           {task.documents.map((documento) => (
                             <li key={documento.id}>
-                              <a href={`/api/expediente/documentos/${documento.id}`} download>
+                              <a
+                                  href={`/api/expediente/documentos/${documento.id}`}
+                                  download
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
                                 {documento.displayName} <span aria-hidden="true">↓</span>
                               </a>
                               <small>{documento.categoryLabel}</small>

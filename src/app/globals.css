@@ -939,11 +939,24 @@ a {
   font-size: 0.6rem;
 }
 
+/*
+ * El reparto de las dos columnas.
+ *
+ * Antes el orbe se llevaba 1.65fr contra 0.72fr: más del doble de ancho para
+ * una conversación que casi siempre está vacía, y la columna donde de verdad se
+ * trabaja —trámites, calendario, archivo, itinerario— apretada a 300 px. El
+ * resultado era una franja en blanco enorme a la izquierda y todo lo demás
+ * comprimido a la derecha.
+ *
+ * Ahora la derecha manda, que es donde está el expediente. El orbe conserva
+ * sitio suficiente para leerse cómodo, pero deja de acaparar la pantalla.
+ */
 .dashboard-grid {
   display: grid;
-  grid-template-columns: minmax(560px, 1.65fr) minmax(300px, 0.72fr);
+  grid-template-columns: minmax(380px, 0.95fr) minmax(460px, 1.25fr);
   gap: clamp(1rem, 2vw, 2rem);
   padding-top: 1.45rem;
+  align-items: start;
 }
 
 .orbe-console,
@@ -954,9 +967,21 @@ a {
   backdrop-filter: blur(14px);
 }
 
+/*
+ * El orbe ya no reserva 700 px de alto pase lo que pase: ese mínimo era el que
+ * pintaba el hueco en blanco cuando la conversación estaba vacía. Ahora crece
+ * con lo que tiene y se queda fijo al hacer scroll, para que la conversación
+ * siga a mano mientras se trabaja en la columna de al lado — que es como se usa
+ * de verdad: preguntas algo y sigues rellenando el expediente.
+ */
 .orbe-console {
-  min-height: 700px;
-  padding: 1.05rem;
+  min-height: 420px;
+  max-height: calc(100vh - 6rem);
+  overflow-y: auto;
+  padding: 1.15rem;
+  position: sticky;
+  top: 1.5rem;
+  font-size: 0.95rem;
 }
 
 .orbe-console__heading {
@@ -1196,11 +1221,59 @@ a {
 .case-rail {
   display: grid;
   align-content: start;
-  gap: 0.9rem;
+  gap: 1.05rem;
 }
 
+/*
+ * Todas las tarjetas de la columna, con el mismo respiro y el mismo cuerpo de
+ * letra. Antes cada una traía el suyo y la columna se leía desigual; con más
+ * ancho disponible, el texto puede crecer sin apretar nada.
+ */
 .case-rail > section {
-  padding: 1.1rem 1.2rem;
+  padding: 1.35rem 1.45rem;
+  font-size: 0.92rem;
+  line-height: 1.6;
+}
+
+.case-rail h2 {
+  font-size: 1.12rem;
+}
+
+.case-rail h3 {
+  font-size: 0.82rem;
+}
+
+.case-rail p,
+.case-rail li {
+  font-size: 0.86rem;
+}
+
+/* Los pies de página y las advertencias eran ilegibles a 0.64-0.68rem. */
+.case-rail .calendar-card__warn,
+.case-rail .calendar-card__footer,
+.case-rail .calendar-row__rule,
+.case-rail .calendar-row__pending,
+.case-rail .calendar-row__shift {
+  font-size: 0.78rem;
+  line-height: 1.65;
+}
+
+.case-rail input[type="text"],
+.case-rail input[type="date"] {
+  width: 100%;
+  margin: 0.3rem 0;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid rgba(221, 188, 117, 0.22);
+  border-radius: 2px;
+  background: rgba(5, 8, 12, 0.6);
+  color: inherit;
+  font-family: inherit;
+  font-size: 0.88rem;
+}
+
+.case-rail input[type="text"]:focus,
+.case-rail input[type="date"]:focus {
+  outline: 1px solid rgba(227, 190, 108, 0.5);
 }
 
 .next-action {
@@ -1487,6 +1560,13 @@ a {
     grid-template-columns: 1fr;
   }
 
+  .orbe-console {
+    /* Apilado, dejarlo pegado taparía la columna de trabajo. */
+    position: static;
+    max-height: none;
+    overflow-y: visible;
+  }
+
   .case-rail {
     grid-template-columns: repeat(2, 1fr);
   }
@@ -1569,7 +1649,11 @@ a {
   }
 
   .orbe-console {
+    /* En una sola columna, fijarlo taparía todo lo de abajo. */
+    position: static;
     min-height: auto;
+    max-height: none;
+    overflow-y: visible;
     padding: 0.75rem;
   }
 
