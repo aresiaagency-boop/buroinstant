@@ -120,8 +120,13 @@ export async function GET() {
     return NextResponse.json({
       proveedor: prueba.proveedor,
       modelo: prueba.modelo,
-      buscaEnLaWeb: prueba.proveedor === "anthropic",
-      diagnostico: "El asesor responde.",
+      // Que la cuenta admita la herramienta de búsqueda no es lo mismo que
+      // que el asesor haya buscado para contestar «listo». Se informa de lo
+      // primero, que es lo que dice qué puede prometer.
+      busquedaWeb: prueba.busquedaDisponible ? "disponible" : "no disponible en esta cuenta",
+      diagnostico: prueba.busquedaDisponible
+        ? "El asesor responde y puede buscar en la web."
+        : "El asesor responde, pero sin búsqueda web: contesta con el expediente y los hechos verificados.",
       respuestaDePrueba: prueba.texto.slice(0, 200),
     });
   } catch (error) {

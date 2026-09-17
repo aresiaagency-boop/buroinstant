@@ -77,6 +77,14 @@ export type RespuestaDelAsesor = {
   proveedor: Proveedor;
   /** Si la respuesta se apoyó en una búsqueda en la web. */
   buscoEnLaWeb: boolean;
+  /**
+   * Si el proveedor aceptó siquiera la herramienta de búsqueda.
+   *
+   * No es lo mismo «no hacía falta buscar» que «esta cuenta no puede buscar».
+   * Lo segundo cambia lo que el asesor puede prometer, y hay que poder verlo
+   * sin leer un código de error.
+   */
+  busquedaDisponible: boolean;
 };
 
 export type Proveedor = "anthropic" | "openai" | "openrouter";
@@ -347,6 +355,35 @@ export function leerRespuesta(bruto: string): {
   }
 }
 
+/**
+ * El otro 400 que se puede provocar sin enterarse.
+ *
+ * La API exige que la conversación empiece por la persona y alterne. El
+ * historial que manda el panel no siempre cumple: si el orbe saludó primero,
+ * el primer turno es del asistente y la petición entera se rechaza —otro 400
+ * indistinguible del anterior, y otra tarde perdida.
+ *
+ * Se arregla aquí, que es donde se sabe: fuera los turnos vacíos, fuera los
+ * del asistente que van por delante del primero de la persona, y dos seguidos
+ * del mismo lado se juntan en uno.
+ */
+export function ordenarTurnos(turnos: Turno[]): Turno[] {
+  const limpios = turnos.filter((turno) => turno.content.trim().length > 0);
+  const primero = limpios.findIndex((turno) => turno.role === "user");
+  if (primero < 0) return [];
+
+  const ordenados: Turno[] = [];
+  for (const turno of limpios.slice(primero)) {
+    const anterior = ordenados[ordenados.length - 1];
+    if (anterior && anterior.role === turno.role) {
+      anterior.content = `${anterior.content}\n\n${turno.content}`;
+      continue;
+    }
+    ordenados.push({ ...turno });
+  }
+  return ordenados;
+}
+
 export async function consultarAsesor(input: {
   texto: string;
   contexto: ContextoDelExpediente;
@@ -357,15 +394,15 @@ export async function consultarAsesor(input: {
   if (!elegido) throw new SinProveedorError();
 
   const sistema = `${PERSONA}\n\n${describirContexto(input.contexto)}\n\n${FORMATO}`;
-  const turnos = [
+  const turnos = ordenarTurnos([
     ...(input.historial ?? []).slice(-8).map((turno) => ({
       role: turno.rol === "user" ? ("user" as const) : ("assistant" as const),
       content: turno.texto,
     })),
     { role: "user" as const, content: input.texto },
-  ];
+  ]);
 
-  const { bruto, modelo, buscoEnLaWeb, urlsBuscadas } =
+  const { bruto, modelo, buscoEnLaWeb, busquedaDisponible, urlsBuscadas } =
     elegido.proveedor === "anthropic"
       ? await porAnthropic(elegido.clave, sistema, turnos, input.signal)
       : await porOpenAiCompatible(elegido, sistema, turnos, input.signal);
@@ -386,11 +423,18 @@ export async function consultarAsesor(input: {
     modelo,
     proveedor: elegido.proveedor,
     buscoEnLaWeb,
+    busquedaDisponible,
   };
 }
 
 type Turno = { role: "user" | "assistant"; content: string };
-type Salida = { bruto: string; modelo: string; buscoEnLaWeb: boolean; urlsBuscadas: string[] };
+type Salida = {
+  bruto: string;
+  modelo: string;
+  buscoEnLaWeb: boolean;
+  busquedaDisponible: boolean;
+  urlsBuscadas: string[];
+};
 
 /**
  * Anthropic, con búsqueda web.
@@ -404,7 +448,62 @@ export function modelosAProbar(): string[] {
   return fijado ? [fijado, ...MODELOS_ANTHROPIC.filter((m) => m !== fijado)] : [...MODELOS_ANTHROPIC];
 }
 
-async function porAnthropic(
+/**
+ * Lo que el proveedor dice que ha ido mal, sin arrastrar nada del expediente.
+ *
+ * Un 400 sin más es un callejón sin salida: dice que el cuerpo está mal pero no
+ * qué campo. La API sí lo dice, en `error.message`, y esa línea es la
+ * diferencia entre arreglarlo en un minuto o pasarse la tarde probando modelos.
+ *
+ * Se recorta y se limpia de saltos de línea porque va a terminar dentro de un
+ * código de error. Nunca se devuelve el cuerpo enviado: ahí van los datos del
+ * expediente.
+ */
+async function porQueSeQueja(respuesta: Response): Promise<string> {
+  try {
+    const cuerpo = (await respuesta.clone().json()) as {
+      error?: { type?: string; message?: string };
+    };
+    const tipo = cuerpo.error?.type ?? "";
+    const mensaje = cuerpo.error?.message ?? "";
+    const junto = [tipo, mensaje].filter((parte) => parte.length > 0).join(": ");
+    return junto.replace(/\s+/g, " ").slice(0, 180);
+  } catch {
+    return "";
+  }
+}
+
+/** Los bloques que se mandan cuando se quiere que el asesor busque en la web. */
+function bloqueDeBusqueda() {
+  return [{ type: "web_search_20250305", name: "web_search", max_uses: 4 }];
+}
+
+async function llamarAnthropic(args: {
+  clave: string;
+  modelo: string;
+  sistema: string;
+  turnos: Turno[];
+  conBusqueda: boolean;
+  signal?: AbortSignal;
+}): Promise<Response> {
+  const cuerpo: Record<string, unknown> = {
+    model: args.modelo,
+    max_tokens: 2400,
+    temperature: TEMPERATURA,
+    system: args.sistema,
+    messages: args.turnos,
+  };
+  if (args.conBusqueda) cuerpo.tools = bloqueDeBusqueda();
+
+  return fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-api-key": args.clave, "anthropic-version": "2023-06-01" },
+    signal: args.signal,
+    body: JSON.stringify(cuerpo),
+  });
+}
+
+export async function porAnthropic(
   clave: string,
   sistema: string,
   turnos: Turno[],
@@ -412,35 +511,48 @@ async function porAnthropic(
 ): Promise<Salida> {
   let respuesta: Response | null = null;
   let modelo = "";
+  let conBusqueda = true;
   const fallos: string[] = [];
 
   for (const candidato of modelosAProbar()) {
-    const intento = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-api-key": clave, "anthropic-version": "2023-06-01" },
-      signal,
-      body: JSON.stringify({
-        model: candidato,
-        max_tokens: 2400,
-        temperature: TEMPERATURA,
-        system: sistema,
-        tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 4 }],
-        messages: turnos,
-      }),
-    });
+    let intento = await llamarAnthropic({ clave, modelo: candidato, sistema, turnos, conBusqueda: true, signal });
+
+    // El 400 que costó una tarde: los cuatro modelos devolvían 400 y el bucle
+    // lo leía como «ese modelo no sirve», cuando lo que no servía era el
+    // cuerpo. La herramienta de búsqueda del servidor no está habilitada en
+    // todas las cuentas, y si no lo está tumba la petición entera.
+    //
+    // Antes de descartar el modelo se vuelve a preguntar sin ella. Se pierde la
+    // búsqueda —y se dice, con `buscoEnLaWeb: false`—, pero el asesor contesta
+    // con el expediente y los hechos verificados, que es su trabajo principal.
+    if (!intento.ok && intento.status === 400) {
+      const queja = await porQueSeQueja(intento);
+      fallos.push(`${candidato}:400(${queja || "sin detalle"})`);
+      intento = await llamarAnthropic({ clave, modelo: candidato, sistema, turnos, conBusqueda: false, signal });
+      if (intento.ok) {
+        respuesta = intento;
+        modelo = candidato;
+        conBusqueda = false;
+        break;
+      }
+      fallos.push(`${candidato}:sin-busqueda:${intento.status}(${(await porQueSeQueja(intento)) || "sin detalle"})`);
+      continue;
+    }
+
     if (intento.ok) {
       respuesta = intento;
       modelo = candidato;
       break;
     }
-    fallos.push(`${candidato}:${intento.status}`);
-    // Un 404 o un 400 es «ese modelo no», y toca probar el siguiente. Un 401 es
-    // la clave, y un 429 la cuota: probar más modelos no arregla ninguno de los
+
+    fallos.push(`${candidato}:${intento.status}(${(await porQueSeQueja(intento)) || "sin detalle"})`);
+    // Un 404 es «ese modelo no», y toca probar el siguiente. Un 401 es la
+    // clave, y un 429 la cuota: probar más modelos no arregla ninguno de los
     // dos y sólo gasta tiempo.
-    if (intento.status !== 404 && intento.status !== 400) break;
+    if (intento.status !== 404) break;
   }
 
-  if (!respuesta) throw new Error(`AI_HTTP_${fallos.join(",")}`);
+  if (!respuesta) throw new Error(`AI_HTTP_${fallos.join(" | ")}`);
 
   const cuerpo = (await respuesta.json()) as {
     content?: Array<{ type: string; text?: string; content?: Array<{ type?: string; url?: string }> }>;
@@ -457,7 +569,8 @@ async function porAnthropic(
   return {
     bruto: bloques.filter((b) => b.type === "text").map((b) => b.text ?? "").join("\n"),
     modelo,
-    buscoEnLaWeb: urlsBuscadas.length > 0,
+    buscoEnLaWeb: conBusqueda && urlsBuscadas.length > 0,
+    busquedaDisponible: conBusqueda,
     urlsBuscadas,
   };
 }
@@ -496,13 +609,17 @@ async function porOpenAiCompatible(
     }),
   });
 
-  if (!respuesta.ok) throw new Error(`AI_HTTP_${respuesta.status}`);
+  if (!respuesta.ok) {
+    const queja = await porQueSeQueja(respuesta);
+    throw new Error(`AI_HTTP_${modelo}:${respuesta.status}(${queja || "sin detalle"})`);
+  }
 
   const cuerpo = (await respuesta.json()) as { choices?: Array<{ message?: { content?: string } }> };
   return {
     bruto: cuerpo.choices?.[0]?.message?.content ?? "",
     modelo,
     buscoEnLaWeb: false,
+    busquedaDisponible: false,
     urlsBuscadas: [],
   };
 }
