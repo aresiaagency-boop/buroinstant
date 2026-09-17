@@ -9,7 +9,12 @@ import { emitOrb } from "@/lib/orb-events";
 import type { ActivityClassification } from "@/lib/activity-classifier";
 import type { Actor, ExtractedField, OrbState } from "@/types/domain";
 
-type ChatMessage = { role: "user" | "assistant"; text: string };
+/** Un turno de la conversación. Los enlaces van aparte para pintarlos como enlaces. */
+type ChatMessage = {
+  role: "user" | "assistant";
+  text: string;
+  fuentes?: Array<{ titulo: string; url: string }>;
+};
 type Profile = Record<string, unknown>;
 
 type SpeechRecognitionLike = {
@@ -561,6 +566,8 @@ export function DashboardExperience({
         texto?: string;
         propuestas?: Array<{ field: string; value: unknown; porque: string }>;
         comprobar?: string[];
+        fuentes?: Array<{ titulo: string; url: string }>;
+        buscoEnLaWeb?: boolean;
         message?: string;
         error?: string;
       };
@@ -601,12 +608,17 @@ export function DashboardExperience({
           ]
             .join("")
             .trim(),
+          // Los enlaces se guardan aparte para pintarlos como enlaces de
+          // verdad: una URL en medio de un párrafo hay que copiarla a mano.
+          fuentes: (result.fuentes ?? []).filter((f) => f.url.startsWith("https://")),
         },
       ]);
       setNotice(
         (result.propuestas ?? []).length > 0
           ? `${result.propuestas!.length} cambios propuestos. Revísalos antes de incorporarlos.`
-          : "Respondido sobre tu expediente.",
+          : result.buscoEnLaWeb
+            ? "Respondido sobre tu expediente, con búsqueda en fuentes oficiales."
+            : "Respondido sobre tu expediente.",
       );
     } catch {
       transition("warning", "No se pudo procesar el mensaje");
@@ -1301,6 +1313,17 @@ export function DashboardExperience({
                 <div className={`message message--${message.role}`} key={`${message.role}-${index}`}>
                   <span>{message.role === "assistant" ? "ORBE" : "TÚ"}</span>
                   <p>{message.text}</p>
+                  {(message.fuentes ?? []).length > 0 && (
+                    <ul className="message__fuentes">
+                      {message.fuentes!.map((fuente) => (
+                        <li key={fuente.url}>
+                          <a href={fuente.url} target="_blank" rel="noreferrer">
+                            {fuente.titulo} <span aria-hidden="true">↗</span>
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               ))}
             </div>

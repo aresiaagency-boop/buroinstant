@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { describirContexto, leerRespuesta, limpiarPropuestas, type ContextoDelExpediente } from "@/lib/agent/asesor";
+import {
+  describirContexto,
+  filtrarFuentes,
+  leerRespuesta,
+  limpiarPropuestas,
+  urlsDelContexto,
+  type ContextoDelExpediente,
+} from "@/lib/agent/asesor";
 import { deriveTasks } from "@/lib/task-engine";
 import { upcomingObligations } from "@/lib/obligations-calendar";
 
@@ -21,6 +28,7 @@ const CONTEXTO: ContextoDelExpediente = {
   obligaciones: upcomingObligations({ profile: { legalForm: "SLU" }, from: "2027-01-01", horizonDays: 200 }),
   documentos: [{ category: "IDENTITY", displayName: "DNI.pdf" }],
   denominaciones: [{ position: 1, name: "ARES AUTONOMOUS SYSTEMS SLU", status: "PROPOSED" }],
+  historial: [{ cuando: "2027-01-10 09:12", que: "DOCUMENT_UPLOADED" }],
   hoy: "2027-01-15",
 };
 
@@ -107,5 +115,75 @@ describe("leer lo que devuelve el modelo", () => {
     const leida = leerRespuesta("Se me ha ido la pinza y he contestado en prosa.");
     expect(leida.texto).toContain("prosa");
     expect(leida.propuestas).toEqual([]);
+  });
+});
+
+/**
+ * Los enlaces son la mitad del trabajo que el asesor viene a quitar. Y un
+ * enlace inventado que parece oficial es peor que no dar ninguno: se pulsa.
+ */
+describe("los enlaces que devuelve", () => {
+  const delContexto = new Set(["https://www.boe.es/buscar/act.php?id=BOE-A-2010-10544"]);
+
+  it("pasa un enlace que ya estaba en el contexto", () => {
+    const fuentes = filtrarFuentes(
+      [{ titulo: "Ley de Sociedades de Capital", url: "https://www.boe.es/buscar/act.php?id=BOE-A-2010-10544" }],
+      delContexto,
+    );
+    expect(fuentes).toHaveLength(1);
+  });
+
+  it("pasa un dominio oficial aunque no estuviera en el contexto", () => {
+    const fuentes = filtrarFuentes(
+      [{ titulo: "Sede de la AEAT", url: "https://sede.agenciatributaria.gob.es/Sede/empresas.html" }],
+      delContexto,
+    );
+    expect(fuentes).toHaveLength(1);
+  });
+
+  it("tumba un dominio que no es oficial ni venía dado", () => {
+    const fuentes = filtrarFuentes(
+      [{ titulo: "Guía definitiva", url: "https://blog-de-gestoria-cualquiera.com/como-crear-una-sl" }],
+      delContexto,
+    );
+    expect(fuentes).toEqual([]);
+  });
+
+  it("tumba un dominio que sólo se parece a uno oficial", () => {
+    // El caso que hay que parar: parece del BOE y no lo es.
+    const fuentes = filtrarFuentes([{ titulo: "BOE", url: "https://boe.es.ejemplo-falso.com/x" }], delContexto);
+    expect(fuentes).toEqual([]);
+  });
+
+  it("acepta un subdominio de uno oficial", () => {
+    const fuentes = filtrarFuentes([{ titulo: "Palma", url: "https://www.palma.cat/tramites" }], delContexto);
+    expect(fuentes).toHaveLength(1);
+  });
+
+  it("tumba lo que no sea https", () => {
+    expect(filtrarFuentes([{ titulo: "x", url: "http://www.boe.es/algo" }], delContexto)).toEqual([]);
+    expect(filtrarFuentes([{ titulo: "x", url: "javascript:alert(1)" }], delContexto)).toEqual([]);
+  });
+
+  it("no repite el mismo enlace dos veces", () => {
+    const repe = [
+      { titulo: "A", url: "https://www.boe.es/buscar/act.php?id=BOE-A-2010-10544" },
+      { titulo: "B", url: "https://www.boe.es/buscar/act.php?id=BOE-A-2010-10544" },
+    ];
+    expect(filtrarFuentes(repe, delContexto)).toHaveLength(1);
+  });
+});
+
+describe("el proveedor que haya", () => {
+  it("las urls del contexto salen de los trámites y de los hechos verificados", () => {
+    const urls = urlsDelContexto(CONTEXTO);
+    expect(urls.size).toBeGreaterThan(5);
+    for (const url of urls) expect(url.startsWith("https://")).toBe(true);
+  });
+});
+
+describe("el seguimiento", () => {
+  it("el asesor ve lo último que pasó en el expediente", () => {
+    expect(describirContexto(CONTEXTO)).toContain("DOCUMENT_UPLOADED");
   });
 });

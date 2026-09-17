@@ -3270,3 +3270,32 @@ a.gold-button {
   line-height: 1.55;
   color: var(--gold-antique);
 }
+
+/*
+ * Los enlaces que da el orbe.
+ *
+ * Una URL en medio de un párrafo hay que copiarla a mano, y copiar a mano es
+ * justo el trabajo que el asesor viene a quitar. Van como enlaces, y abren en
+ * su pestaña: consultar la sede no puede tirar abajo el expediente.
+ */
+.message__fuentes {
+  margin: 0.55rem 0 0;
+  padding: 0.55rem 0 0;
+  border-top: 1px solid rgba(221, 188, 117, 0.14);
+  list-style: none;
+}
+
+.message__fuentes li + li {
+  margin-top: 0.3rem;
+}
+
+.message__fuentes a {
+  color: var(--gold-antique);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  text-decoration: none;
+}
+
+.message__fuentes a:hover {
+  text-decoration: underline;
+}

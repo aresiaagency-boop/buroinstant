@@ -158,7 +158,9 @@ export function renderCarpetaHtml(carpeta: CarpetaCompleta): string {
   partes.push("<h2>Fuente oficial</h2>");
   partes.push(
     fuente
-      ? `<p><a href="${escaparHtml(fuente)}">${escaparHtml(fuente)}</a></p>`
+      // Se abre en su pestaña: la carpeta es lo que llevas al mostrador, y
+      // pulsar la fuente no puede hacerte perder la página que ibas a imprimir.
+      ? `<p><a href="${escaparHtml(fuente)}" target="_blank" rel="noreferrer">${escaparHtml(fuente)}</a></p>`
       : "<p class=\"falta\">Sin enlace a fuente oficial verificada. Comprueba el procedimiento vigente antes de presentar nada.</p>",
   );
 

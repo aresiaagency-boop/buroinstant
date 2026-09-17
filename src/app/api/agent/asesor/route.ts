@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getCurrentActor } from "@/lib/auth";
-import { isDatabaseConfigured, redactDatabaseError } from "@/lib/db";
+import { db, isDatabaseConfigured, redactDatabaseError } from "@/lib/db";
 import { readTaskDocuments } from "@/lib/documents/evidence-repository";
 import { upcomingObligations } from "@/lib/obligations-calendar";
 import { readLatestProject, readProjectSnapshot } from "@/lib/project-profile";
@@ -42,6 +42,28 @@ const bodySchema = z.object({
     .max(12)
     .optional(),
 });
+
+/**
+ * Lo último que pasó en el expediente.
+ *
+ * Sólo el tipo de evento y cuándo: el payload puede traer datos de la persona y
+ * no hace falta metérselos al modelo para que sepa que hubo un cambio de
+ * perfil o una subida de documento.
+ */
+async function leerHistorial(projectId: string): Promise<Array<{ cuando: string; que: string }>> {
+  const sql = db();
+  const filas = await sql<Array<{ event_type: string; created_at: Date }>>`
+    select event_type, created_at
+    from case_events
+    where project_id = ${projectId}
+    order by created_at desc
+    limit 15
+  `;
+  return filas.map((fila) => ({
+    cuando: fila.created_at.toISOString().slice(0, 16).replace("T", " "),
+    que: fila.event_type,
+  }));
+}
 
 function perfilParaMotor(profile: Record<string, unknown>): Partial<ProjectProfile> {
   const forma = typeof profile.preferred_legal_form === "string" ? profile.preferred_legal_form : null;
@@ -118,6 +140,10 @@ export async function POST(request: Request) {
       }),
       documentos,
       denominaciones: await readDenominations(actor, proyecto.id),
+      // Sin esto el asesor contesta y se olvida. Con esto puede sacar por su
+      // cuenta lo que quedó empezado y sin cerrar, que es la mitad del trabajo
+      // de un gestor: acordarse por ti.
+      historial: await leerHistorial(proyecto.id),
       hoy,
     };
 
