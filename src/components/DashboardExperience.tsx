@@ -69,6 +69,21 @@ type CaseField = {
   options?: CaseFieldOption[];
 };
 
+/** Los dos plazos que arrancan con la certificación del RMC. */
+type PlazosRmc = {
+  expedidaEl: string;
+  limiteEscritura: string;
+  limiteReserva: string;
+};
+
+type ProyectoListado = {
+  id: string;
+  name: string;
+  caseStage: string;
+  updatedAt: string;
+  archivado: boolean;
+};
+
 /** Una fila del calendario de obligaciones, tal como la sirve la ruta. */
 type ObligationRow = {
   code: string;
@@ -373,6 +388,15 @@ export function DashboardExperience({
   const [confirmingTask, setConfirmingTask] = useState<string | null>(null);
   const [carpeta, setCarpeta] = useState<CarpetaVista | null>(null);
   const [carpetaCargando, setCarpetaCargando] = useState<string | null>(null);
+  // Las cinco del Registro Mercantil Central. Cinco casillas fijas porque el
+  // RMC admite cinco: la forma del formulario dice la regla sin explicarla.
+  const [denominaciones, setDenominaciones] = useState<string[]>(["", "", "", "", ""]);
+  const [concedida, setConcedida] = useState<number | null>(null);
+  const [certificadaEl, setCertificadaEl] = useState("");
+  const [plazosRmc, setPlazosRmc] = useState<PlazosRmc | null>(null);
+  const [guardandoRmc, setGuardandoRmc] = useState(false);
+  const [proyectos, setProyectos] = useState<ProyectoListado[] | null>(null);
+  const [archivando, setArchivando] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pendingCategoryRef = useRef<string>("OTHER");
   const [sourceState, setSourceState] = useState<{
@@ -424,10 +448,20 @@ export function DashboardExperience({
       } catch {
         // El estado de vinculación no puede impedir usar el panel.
       }
+      if (!cancelado) {
+        // Las denominaciones y la lista de expedientes se traen con el resto:
+        // son parte de lo que la persona dejó a medias, no una pantalla aparte.
+        await cargarDenominaciones();
+        await cargarProyectos();
+      }
     })();
     return () => {
       cancelado = true;
     };
+    // Este efecto corre una vez al abrir el panel. `cargarDenominaciones` y
+    // `cargarProyectos` se redefinen en cada render, así que incluirlas en las
+    // dependencias repetiría la carga en bucle sin que nada haya cambiado.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [actor.mode, configuration.database]);
 
   useEffect(() => {
@@ -525,6 +559,121 @@ export function DashboardExperience({
       document.getElementById("respuesta-dirigida")?.scrollIntoView({ behavior: "smooth", block: "center" });
       answerRef.current?.focus();
     }, 60);
+  }
+
+  /**
+   * Las cinco denominaciones que se piden al Registro Mercantil Central.
+   *
+   * Existían en el expediente pero no había forma de escribirlas desde aquí: la
+   * ruta estaba y el panel no. Una función a la que sólo se llega por consola no
+   * existe para quien usa la aplicación.
+   */
+  async function cargarDenominaciones() {
+    if (actor.mode !== "oauth" || !configuration.database) return;
+    try {
+      const payload = await fetch("/api/expediente/denominaciones", { cache: "no-store" }).then((r) =>
+        r.ok ? r.json() : null,
+      );
+      if (!payload) return;
+      const casillas = ["", "", "", "", ""];
+      let cual: number | null = null;
+      for (const item of payload.denominaciones ?? []) {
+        casillas[item.position - 1] = item.name;
+        if (item.status === "GRANTED") cual = item.position;
+      }
+      setDenominaciones(casillas);
+      setConcedida(cual);
+      setPlazosRmc(payload.plazos ?? null);
+      if (payload.plazos?.expedidaEl) setCertificadaEl(payload.plazos.expedidaEl);
+    } catch {
+      // Una lectura que falla no rompe el panel: se queda como estaba.
+    }
+  }
+
+  async function guardarDenominaciones() {
+    setGuardandoRmc(true);
+    try {
+      const lista = denominaciones
+        .map((name, indice) => ({ name: name.trim(), posicion: indice + 1 }))
+        .filter((item) => item.name.length >= 2)
+        .map((item) => ({
+          name: item.name,
+          status: concedida === item.posicion ? ("GRANTED" as const) : ("PROPOSED" as const),
+        }));
+
+      const response = await fetch("/api/expediente/denominaciones", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ denominaciones: lista }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        setNotice(payload?.message ?? "No he podido guardar las denominaciones.");
+        return;
+      }
+
+      // La fecha de certificación va con el perfil, no con la lista.
+      const fecha = certificadaEl.trim();
+      if (fecha === "" || /^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+        await fetch("/api/expediente", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            ...(projectId ? { projectId } : {}),
+            denomination_certified_at: fecha === "" ? null : fecha,
+          }),
+        });
+      }
+
+      await cargarDenominaciones();
+      setNotice(
+        lista.length === 0
+          ? "Lista vacía guardada. Sin denominaciones, el trámite del RMC no se puede presentar."
+          : `${lista.length} denominaciones guardadas, por orden de preferencia.`,
+      );
+    } catch {
+      setNotice("Sin conexión. No he podido guardar las denominaciones.");
+    } finally {
+      setGuardandoRmc(false);
+    }
+  }
+
+  async function cargarProyectos() {
+    if (actor.mode !== "oauth" || !configuration.database) return;
+    try {
+      const payload = await fetch("/api/expediente/archivar", { cache: "no-store" }).then((r) =>
+        r.ok ? r.json() : null,
+      );
+      if (payload?.proyectos) setProyectos(payload.proyectos as ProyectoListado[]);
+    } catch {
+      // Igual que arriba: una lectura fallida no cambia nada.
+    }
+  }
+
+  async function archivarProyecto(id: string, archivado: boolean) {
+    setArchivando(id);
+    try {
+      const response = await fetch("/api/expediente/archivar", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ projectId: id, archivado }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        setNotice(payload?.message ?? "No he podido cambiar el estado del expediente.");
+        return;
+      }
+      if (payload?.proyectos) setProyectos(payload.proyectos as ProyectoListado[]);
+      setNotice(
+        archivado
+          ? "Expediente archivado. No se ha borrado nada: sigue ahí, sólo deja de contar como abierto."
+          : "Expediente recuperado.",
+      );
+    } catch {
+      setNotice("Sin conexión. No he podido cambiar el estado del expediente.");
+    } finally {
+      setArchivando(null);
+    }
   }
 
   /**
@@ -1577,6 +1726,142 @@ export function DashboardExperience({
                 <span aria-hidden="true">↗</span>
               </button>
             </section>
+
+            {/* El primer trámite real de una sociedad. Hasta ahora las cinco
+                denominaciones vivían fuera del expediente y la carpeta salía
+                sin ellas: se imprimía, se llegaba al RMC y había que buscarlas
+                en otro sitio. */}
+            <section className="calendar-card" id="denominaciones">
+              <div className="section-heading">
+                <h2>Denominaciones para el Registro Mercantil</h2>
+                <span>{denominaciones.filter((d) => d.trim().length >= 2).length}/5</span>
+              </div>
+
+              <p className="calendar-card__warn">
+                Se piden hasta cinco en una sola solicitud, por orden de preferencia: el Registro
+                concede la primera que esté libre. Se guardan tal y como las escribas — las reglas de
+                composición las aplica el RMC, y corregirlas aquí pediría un nombre distinto del que
+                quieres.
+              </p>
+
+              <ol className="calendar-card__list">
+                {denominaciones.map((valor, indice) => (
+                  <li key={indice} className="calendar-row">
+                    <div className="calendar-row__when">
+                      <strong>{indice + 1}ª</strong>
+                      <small>{concedida === indice + 1 ? "concedida" : "preferencia"}</small>
+                    </div>
+                    <div className="calendar-row__what">
+                      <input
+                        type="text"
+                        value={valor}
+                        maxLength={200}
+                        placeholder={indice === 0 ? "La que más quieres" : "Alternativa"}
+                        aria-label={`Denominación ${indice + 1}`}
+                        onChange={(event) => {
+                          const copia = [...denominaciones];
+                          copia[indice] = event.target.value;
+                          setDenominaciones(copia);
+                        }}
+                      />
+                      <label className="calendar-row__rule">
+                        <input
+                          type="radio"
+                          name="denominacion-concedida"
+                          checked={concedida === indice + 1}
+                          onChange={() => setConcedida(indice + 1)}
+                        />{" "}
+                        El Registro me concedió ésta
+                      </label>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+
+              <div className="calendar-card__undated">
+                <h3>Fecha de la certificación</h3>
+                <p className="calendar-card__warn">
+                  El día que el Registro expidió la certificación negativa. De ella arrancan dos
+                  relojes distintos: tres meses para otorgar la escritura y seis de reserva del
+                  nombre. Sin esta fecha no puedo calcular ninguno de los dos.
+                </p>
+                <input
+                  type="date"
+                  value={certificadaEl}
+                  aria-label="Fecha de expedición de la certificación"
+                  onChange={(event) => setCertificadaEl(event.target.value)}
+                />
+                {plazosRmc && (
+                  <ul className="calendar-card__list">
+                    <li className="calendar-row">
+                      <div className="calendar-row__what">
+                        <strong>Otorgar la escritura, hasta el {fechaLarga(plazosRmc.limiteEscritura)}</strong>
+                        <p>Tres meses desde la expedición.</p>
+                      </div>
+                    </li>
+                    <li className="calendar-row">
+                      <div className="calendar-row__what">
+                        <strong>Reserva del nombre, hasta el {fechaLarga(plazosRmc.limiteReserva)}</strong>
+                        <p>
+                          No basta con firmar dentro de plazo: la certificación tiene que seguir
+                          vigente cuando la escritura se <strong>presenta</strong> en el Registro.
+                        </p>
+                      </div>
+                    </li>
+                  </ul>
+                )}
+              </div>
+
+              <button
+                type="button"
+                className="gold-button gold-button--small"
+                onClick={() => void guardarDenominaciones()}
+                disabled={guardandoRmc}
+              >
+                {guardandoRmc ? "Guardando…" : "Guardar denominaciones"}{" "}
+                <span aria-hidden="true">↗</span>
+              </button>
+            </section>
+
+            {/* Archivar no borra. Existe porque el panel muestra el expediente
+                más reciente, y uno de más desplaza al verdadero. */}
+            {proyectos && proyectos.length > 1 && (
+              <section className="calendar-card" id="expedientes">
+                <div className="section-heading">
+                  <h2>Tus expedientes</h2>
+                  <span>{proyectos.filter((p) => !p.archivado).length} abiertos</span>
+                </div>
+                <p className="calendar-card__warn">
+                  El panel muestra el más reciente de los abiertos. Archivar no borra nada: el
+                  expediente conserva sus trámites, sus documentos y su historial, y puedes
+                  recuperarlo cuando quieras.
+                </p>
+                <ol className="calendar-card__list">
+                  {proyectos.map((proyecto) => (
+                    <li key={proyecto.id} className="calendar-row">
+                      <div className="calendar-row__what">
+                        <strong>{proyecto.name}</strong>
+                        <span className="calendar-row__period">
+                          {proyecto.archivado ? "Archivado" : "Abierto"}
+                        </span>
+                        <button
+                          type="button"
+                          className="gold-button gold-button--small"
+                          onClick={() => void archivarProyecto(proyecto.id, !proyecto.archivado)}
+                          disabled={archivando === proyecto.id}
+                        >
+                          {archivando === proyecto.id
+                            ? "Cambiando…"
+                            : proyecto.archivado
+                              ? "Recuperar"
+                              : "Archivar"}
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            )}
 
             <section className="itinerary-card" id="itinerario">
               <div className="section-heading">
