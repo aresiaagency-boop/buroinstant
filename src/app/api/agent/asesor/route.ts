@@ -14,6 +14,7 @@ import {
   SinProveedorError,
   consultarAsesor,
   elegirProveedor,
+  queHacerConEsto,
   modelosAProbar,
   proveedorConfigurado,
   type ContextoDelExpediente,
@@ -131,13 +132,17 @@ export async function GET() {
       respuestaDePrueba: prueba.texto.slice(0, 200),
     });
   } catch (error) {
+    const mensaje = error instanceof Error ? error.message : String(error);
     return NextResponse.json({
       proveedor: elegido.proveedor,
       modelosProbados: elegido.proveedor === "anthropic" ? modelosAProbar() : undefined,
       diagnostico: "El asesor NO responde.",
-      // El mensaje lleva el código HTTP de cada modelo probado, que es lo que
-      // dice si el problema es la clave, la cuota o el nombre del modelo.
-      error: error instanceof Error ? error.message : String(error),
+      // Un diagnóstico que no termina en una acción concreta es media
+      // herramienta: el mensaje de la API es correcto y no dice dónde pulsar.
+      queHacer: queHacerConEsto(mensaje) ?? "Revisa el error de abajo: lo devuelve el proveedor tal cual.",
+      // El mensaje lleva el código HTTP y el motivo de cada modelo probado, que
+      // es lo que dice si el problema es la clave, la cuota o el cuerpo.
+      error: mensaje,
     });
   }
 }
@@ -247,8 +252,15 @@ export async function POST(request: Request) {
       );
     }
     if (error instanceof Error && error.message.startsWith("AI_HTTP_")) {
+      // El mismo motivo accionable que el diagnóstico, para que quien está en
+      // el panel no tenga que abrir otra pestaña para enterarse.
       return NextResponse.json(
-        { error: error.message, message: "El proveedor de IA ha devuelto un error. Vuelve a intentarlo." },
+        {
+          error: error.message,
+          message:
+            queHacerConEsto(error.message) ??
+            "El proveedor de IA ha devuelto un error. Diagnóstico en /api/agent/asesor.",
+        },
         { status: 502 },
       );
     }

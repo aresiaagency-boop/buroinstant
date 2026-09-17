@@ -176,3 +176,78 @@ describe("el orden de los turnos", () => {
     expect(ordenarTurnos([{ role: "user", content: "   " }])).toEqual([]);
   });
 });
+
+/**
+ * El fallo real, el que el diagnóstico acabó nombrando.
+ *
+ * La API lo dijo con todas las letras en cuanto se dejó de tirar su mensaje:
+ * «This API key is not scoped to a workspace». La clave era de organización, y
+ * una clave de organización obliga a decir en cada petición a qué workspace se
+ * carga. Por eso fallaban los cuatro modelos, y por eso fallaban también sin la
+ * herramienta de búsqueda: la llamada no llegaba a ningún modelo.
+ */
+describe("la clave de organización y su workspace", () => {
+  it("manda la cabecera cuando está configurado el workspace", async () => {
+    const { cabecerasAnthropic } = await import("@/lib/agent/asesor");
+    process.env.ANTHROPIC_WORKSPACE_ID = "wrkspc_de_prueba";
+    try {
+      expect(cabecerasAnthropic("clave")["anthropic-workspace-id"]).toBe("wrkspc_de_prueba");
+    } finally {
+      delete process.env.ANTHROPIC_WORKSPACE_ID;
+    }
+  });
+
+  it("no la manda cuando no lo está: una clave ya adscrita no la necesita", async () => {
+    const { cabecerasAnthropic } = await import("@/lib/agent/asesor");
+    delete process.env.ANTHROPIC_WORKSPACE_ID;
+    expect(cabecerasAnthropic("clave")["anthropic-workspace-id"]).toBeUndefined();
+  });
+
+  it("viaja en la llamada de verdad, no sólo en la función", async () => {
+    process.env.ANTHROPIC_WORKSPACE_ID = "wrkspc_de_prueba";
+    const llamadas: RequestInit[] = [];
+    globalThis.fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      llamadas.push(init as RequestInit);
+      return respuesta(200, OK);
+    }) as unknown as typeof globalThis.fetch;
+
+    try {
+      await porAnthropic("clave", "sistema", TURNOS);
+      const cabeceras = llamadas[0].headers as Record<string, string>;
+      expect(cabeceras["anthropic-workspace-id"]).toBe("wrkspc_de_prueba");
+    } finally {
+      delete process.env.ANTHROPIC_WORKSPACE_ID;
+    }
+  });
+
+  it("nunca deja la clave fuera de la cabecera", async () => {
+    const { cabecerasAnthropic } = await import("@/lib/agent/asesor");
+    expect(cabecerasAnthropic("clave")["x-api-key"]).toBe("clave");
+  });
+});
+
+/**
+ * Un diagnóstico que no termina en una acción concreta es media herramienta.
+ */
+describe("qué hacer con el error", () => {
+  it("el de workspace se traduce a los dos caminos que lo arreglan", async () => {
+    const { queHacerConEsto } = await import("@/lib/agent/asesor");
+    const consejo = queHacerConEsto(
+      "invalid_request_error: This API key is not scoped to a workspace, so this request must include the anthropic-workspace-id header",
+    );
+    expect(consejo).toContain("ANTHROPIC_WORKSPACE_ID");
+    expect(consejo).toContain("workspace");
+  });
+
+  it("distingue saldo, clave inválida y límite de peticiones", async () => {
+    const { queHacerConEsto } = await import("@/lib/agent/asesor");
+    expect(queHacerConEsto("Your credit balance is too low")).toContain("saldo");
+    expect(queHacerConEsto("authentication_error: invalid x-api-key")).toContain("clave");
+    expect(queHacerConEsto("rate_limit_error: too many requests")).toContain("límite");
+  });
+
+  it("no se inventa un consejo para un error que no conoce", async () => {
+    const { queHacerConEsto } = await import("@/lib/agent/asesor");
+    expect(queHacerConEsto("algo rarísimo que nadie ha visto")).toBeNull();
+  });
+});

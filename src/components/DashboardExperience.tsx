@@ -610,10 +610,12 @@ export function DashboardExperience({
        * dos minutos en un misterio. El motivo va ahora en el aviso.
        */
       if (!response.ok) {
+        // El servidor ya sabe qué hay que hacer cuando lo sabe; si lo manda,
+        // se enseña eso y no un código. Sólo cuando no lo sabe se manda a
+        // mirar el diagnóstico.
         const motivo =
-          result.error === "AI_PROVIDER_NOT_CONFIGURED"
-            ? (result.message ?? "Falta la clave del proveedor de IA.")
-            : `El asesor no ha podido responder (${result.error ?? response.status}). Diagnóstico en /api/agent/asesor.`;
+          result.message ??
+          `El asesor no ha podido responder (${result.error ?? response.status}). Diagnóstico en /api/agent/asesor.`;
         await enviarPorReglas(text, motivo);
         return;
       }

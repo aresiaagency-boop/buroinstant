@@ -34,8 +34,14 @@ muere en el chat.
   `/healthz` responde `{"status":"ok"}` sin autenticación. Los task runners
   externos **deniegan `$env`** en nodos Code.
 - La API de Anthropic devuelve **404** para un modelo desconocido y **400**
-  para un cuerpo mal formado. No son intercambiables, y confundirlos costó una
-  tarde (ver abajo).
+  para una petición mal formada. No son intercambiables.
+- **Una clave de Anthropic de nivel ORGANIZACIÓN no está adscrita a ningún
+  workspace, y entonces la API exige la cabecera `anthropic-workspace-id` en
+  cada petición.** Sin ella responde 400 a todo, con cualquier modelo y con o
+  sin herramientas: la llamada no llega a ningún modelo. Dos salidas, las dos
+  válidas: crear la clave **dentro** de un workspace (queda adscrita y no
+  necesita nada), o poner `ANTHROPIC_WORKSPACE_ID=wrkspc_...`. El código
+  soporta las dos.
 
 ---
 
@@ -48,9 +54,11 @@ Lo que ya se probó y no funciona. No repetirlo.
   (403 CONNECT). Lo que sí funciona: leer el artículo transcrito dentro de una
   resolución corta de la DGSJFP.
 - **Tratar un 400 de Anthropic como "ese modelo no sirve".** El bucle se comía
-  los cuatro candidatos repitiendo el mismo cuerpo malo. El culpable era el
-  bloque `web_search_20250305`, que no está habilitado en todas las cuentas y
-  tumba la petición entera en vez de ignorarse.
+  los cuatro candidatos repitiendo la misma petición mala.
+- **Culpar al bloque `web_search_20250305` de ese 400.** Hipótesis razonable y
+  falsa: el reintento sin la herramienta falla con el mismo mensaje. La
+  herramienta era inocente. Lo que lo demostró fue dejar de tirar
+  `error.message`, no razonar mejor.
 - **Tirar `error.message` de la respuesta del proveedor.** Es justo la línea
   que nombra el campo que sobra.
 - **`PATCH /api/expediente` sin `projectId`.** Abría un expediente nuevo y
@@ -87,10 +95,10 @@ Lo que ya se probó y no funciona. No repetirlo.
 
 ## Próximos pasos
 
-1. **Comprobar el diagnóstico en producción** tras desplegar: abrir
-   `/api/agent/asesor` y leer `busquedaWeb`. Si dice «no disponible en esta
-   cuenta», el asesor funciona sin búsqueda y hay que decidir si se habilita la
-   herramienta en la cuenta de Anthropic.
+1. **Adscribir la clave de Anthropic a un workspace** (ver arriba) y volver a
+   abrir `/api/agent/asesor`. Debe decir «El asesor responde». Después mirar
+   `busquedaWeb`: si dice «no disponible en esta cuenta», el asesor funciona
+   pero sin buscar, y toca decidir si se habilita la herramienta.
 2. Cargar las cinco denominaciones en el expediente real de A.R.E.S. y archivar
    el expediente vacío «Mi empresa» desde el panel.
 3. n8n: pegar los dos valores de credencial que siguen en `PENDIENTE_DE_PEGAR`

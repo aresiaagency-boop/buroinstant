@@ -579,6 +579,48 @@ export function modelosAProbar(): string[] {
  * código de error. Nunca se devuelve el cuerpo enviado: ahí van los datos del
  * expediente.
  */
+/**
+ * Lo que hay que hacer, dicho en una línea.
+ *
+ * El mensaje que devuelve la API es correcto y es inútil para quien no vive
+ * dentro de esa API: «This API key is not scoped to a workspace» no le dice a
+ * nadie dónde pulsar. Un diagnóstico que no termina en una acción concreta es
+ * media herramienta.
+ *
+ * Se traduce sólo lo que se ha visto fallar de verdad. Inventar traducciones
+ * para errores hipotéticos envejece mal.
+ */
+export function queHacerConEsto(mensaje: string): string | null {
+  const texto = mensaje.toLowerCase();
+
+  if (texto.includes("anthropic-workspace-id") || texto.includes("not scoped to a workspace")) {
+    return (
+      "La clave de Anthropic es de organización y no está adscrita a ningún workspace. " +
+      "Dos salidas: crear la clave DENTRO de un workspace en la consola de Anthropic y sustituirla " +
+      "(no necesita nada más), o añadir la variable ANTHROPIC_WORKSPACE_ID con el id del workspace " +
+      "(empieza por wrkspc_) y volver a desplegar."
+    );
+  }
+
+  if (texto.includes("credit balance") || texto.includes("insufficient")) {
+    return "La cuenta de Anthropic no tiene saldo. Recárgala en la consola y el asesor vuelve solo.";
+  }
+
+  if (texto.includes("authentication_error") || texto.includes("invalid x-api-key")) {
+    return "La clave de Anthropic no es válida. Genera una nueva en la consola y actualízala en Vercel.";
+  }
+
+  if (texto.includes("rate_limit") || texto.includes("429")) {
+    return "Has llegado al límite de peticiones de Anthropic. Espera unos minutos o sube el límite en la consola.";
+  }
+
+  if (texto.includes("not_found_error") || texto.includes("model:")) {
+    return "Ese identificador de modelo no lo sirve esta cuenta. Fija uno válido en ANTHROPIC_MODEL.";
+  }
+
+  return null;
+}
+
 async function porQueSeQueja(respuesta: Response): Promise<string> {
   try {
     const cuerpo = (await respuesta.clone().json()) as {
@@ -596,6 +638,29 @@ async function porQueSeQueja(respuesta: Response): Promise<string> {
 /** Los bloques que se mandan cuando se quiere que el asesor busque en la web. */
 function bloqueDeBusqueda() {
   return [{ type: "web_search_20250305", name: "web_search", max_uses: 4 }];
+}
+
+/**
+ * Las cabeceras de la llamada, con el workspace si hace falta.
+ *
+ * Una clave de Anthropic creada a nivel de ORGANIZACIÓN no está adscrita a
+ * ningún workspace, y entonces la API exige que cada petición diga a cuál
+ * cargarla, con `anthropic-workspace-id`. Sin esa cabecera contesta 400 y la
+ * llamada no llega a ningún modelo: por eso fallaban los cuatro, y por eso
+ * fallaban también sin la herramienta de búsqueda.
+ *
+ * Una clave creada DENTRO de un workspace ya viene adscrita y no necesita
+ * nada. Las dos formas valen; esto sostiene la primera.
+ */
+export function cabecerasAnthropic(clave: string): Record<string, string> {
+  const cabeceras: Record<string, string> = {
+    "content-type": "application/json",
+    "x-api-key": clave,
+    "anthropic-version": "2023-06-01",
+  };
+  const workspace = process.env.ANTHROPIC_WORKSPACE_ID?.trim();
+  if (workspace) cabeceras["anthropic-workspace-id"] = workspace;
+  return cabeceras;
 }
 
 async function llamarAnthropic(args: {
@@ -617,7 +682,7 @@ async function llamarAnthropic(args: {
 
   return fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
-    headers: { "content-type": "application/json", "x-api-key": args.clave, "anthropic-version": "2023-06-01" },
+    headers: cabecerasAnthropic(args.clave),
     signal: args.signal,
     body: JSON.stringify(cuerpo),
   });
