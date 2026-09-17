@@ -572,12 +572,22 @@ export function DashboardExperience({
         error?: string;
       };
 
+      /*
+       * Cualquier fallo del asesor cae al extractor, y se dice por qué.
+       *
+       * Antes sólo se rescataba el caso «no hay clave»; con cualquier otro
+       * error el orbe soltaba «No he podido procesar esta entrada», que no
+       * dice nada. Pasó de verdad: detrás había un modelo que esa cuenta no
+       * servía, y el mensaje genérico convirtió un fallo de configuración de
+       * dos minutos en un misterio. El motivo va ahora en el aviso.
+       */
       if (!response.ok) {
-        if (result.error === "AI_PROVIDER_NOT_CONFIGURED") {
-          await enviarPorReglas(text, result.message);
-          return;
-        }
-        throw new Error(result.error ?? "REQUEST_FAILED");
+        const motivo =
+          result.error === "AI_PROVIDER_NOT_CONFIGURED"
+            ? (result.message ?? "Falta la clave del proveedor de IA.")
+            : `El asesor no ha podido responder (${result.error ?? response.status}). Diagnóstico en /api/agent/asesor.`;
+        await enviarPorReglas(text, motivo);
+        return;
       }
 
       transition("validating", "Contrastando con tu expediente");

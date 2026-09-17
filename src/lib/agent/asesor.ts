@@ -30,7 +30,26 @@ import type { DerivedTask } from "@/lib/task-engine";
  *      que es peor pero es honesto.
  */
 
-export const MODELO_POR_DEFECTO = "claude-sonnet-4-5";
+/**
+ * Los identificadores de modelo caducan, y cuando caducan la API responde 404.
+ *
+ * Pasó en producción: el orbe contestaba «No he podido procesar esta entrada»
+ * —el mensaje genérico de error del panel— y detrás había un `AI_HTTP_404` por
+ * un nombre de modelo que esa cuenta no servía. Un fallo de configuración
+ * disfrazado de fallo de red es un fallo que nadie arregla, porque nadie sabe
+ * qué mirar.
+ *
+ * Se prueban en orden hasta que uno conteste. `ANTHROPIC_MODEL`, si está, va
+ * primero: quien lo fija sabe lo que quiere.
+ */
+export const MODELOS_ANTHROPIC = [
+  "claude-sonnet-4-5",
+  "claude-sonnet-4-5-20250929",
+  "claude-3-7-sonnet-latest",
+  "claude-3-5-sonnet-latest",
+];
+
+export const MODELO_POR_DEFECTO = MODELOS_ANTHROPIC[0];
 
 /** Temperatura alta para conversar; el rigor lo ponen las reglas, no el muestreo. */
 export const TEMPERATURA = 0.7;
@@ -380,28 +399,48 @@ type Salida = { bruto: string; modelo: string; buscoEnLaWeb: boolean; urlsBuscad
  * verdad. Por eso se recogen aparte: una URL que salió de una búsqueda real se
  * puede citar; una que el modelo se saque de la cabeza, no.
  */
+export function modelosAProbar(): string[] {
+  const fijado = process.env.ANTHROPIC_MODEL?.trim();
+  return fijado ? [fijado, ...MODELOS_ANTHROPIC.filter((m) => m !== fijado)] : [...MODELOS_ANTHROPIC];
+}
+
 async function porAnthropic(
   clave: string,
   sistema: string,
   turnos: Turno[],
   signal?: AbortSignal,
 ): Promise<Salida> {
-  const modelo = process.env.ANTHROPIC_MODEL?.trim() || MODELO_POR_DEFECTO;
-  const respuesta = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-api-key": clave, "anthropic-version": "2023-06-01" },
-    signal,
-    body: JSON.stringify({
-      model: modelo,
-      max_tokens: 2400,
-      temperature: TEMPERATURA,
-      system: sistema,
-      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 4 }],
-      messages: turnos,
-    }),
-  });
+  let respuesta: Response | null = null;
+  let modelo = "";
+  const fallos: string[] = [];
 
-  if (!respuesta.ok) throw new Error(`AI_HTTP_${respuesta.status}`);
+  for (const candidato of modelosAProbar()) {
+    const intento = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": clave, "anthropic-version": "2023-06-01" },
+      signal,
+      body: JSON.stringify({
+        model: candidato,
+        max_tokens: 2400,
+        temperature: TEMPERATURA,
+        system: sistema,
+        tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 4 }],
+        messages: turnos,
+      }),
+    });
+    if (intento.ok) {
+      respuesta = intento;
+      modelo = candidato;
+      break;
+    }
+    fallos.push(`${candidato}:${intento.status}`);
+    // Un 404 o un 400 es «ese modelo no», y toca probar el siguiente. Un 401 es
+    // la clave, y un 429 la cuota: probar más modelos no arregla ninguno de los
+    // dos y sólo gasta tiempo.
+    if (intento.status !== 404 && intento.status !== 400) break;
+  }
+
+  if (!respuesta) throw new Error(`AI_HTTP_${fallos.join(",")}`);
 
   const cuerpo = (await respuesta.json()) as {
     content?: Array<{ type: string; text?: string; content?: Array<{ type?: string; url?: string }> }>;

@@ -1,10 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   describirContexto,
   filtrarFuentes,
   leerRespuesta,
   limpiarPropuestas,
+  modelosAProbar,
   urlsDelContexto,
   type ContextoDelExpediente,
 } from "@/lib/agent/asesor";
@@ -185,5 +186,34 @@ describe("el proveedor que haya", () => {
 describe("el seguimiento", () => {
   it("el asesor ve lo último que pasó en el expediente", () => {
     expect(describirContexto(CONTEXTO)).toContain("DOCUMENT_UPLOADED");
+  });
+});
+
+/**
+ * El fallo que costó una tarde: un identificador de modelo que esa cuenta no
+ * servía, escondido tras «No he podido procesar esta entrada».
+ */
+describe("qué modelos se prueban", () => {
+  const original = process.env.ANTHROPIC_MODEL;
+  afterEach(() => {
+    if (original === undefined) delete process.env.ANTHROPIC_MODEL;
+    else process.env.ANTHROPIC_MODEL = original;
+  });
+
+  it("prueba varios, no uno solo: los identificadores caducan", () => {
+    delete process.env.ANTHROPIC_MODEL;
+    expect(modelosAProbar().length).toBeGreaterThan(1);
+  });
+
+  it("el que fija la configuración va primero, y no se repite", () => {
+    process.env.ANTHROPIC_MODEL = "claude-3-5-sonnet-latest";
+    const lista = modelosAProbar();
+    expect(lista[0]).toBe("claude-3-5-sonnet-latest");
+    expect(lista.filter((m) => m === "claude-3-5-sonnet-latest")).toHaveLength(1);
+  });
+
+  it("uno desconocido también se respeta: quien lo fija sabe lo que quiere", () => {
+    process.env.ANTHROPIC_MODEL = "un-modelo-que-solo-tiene-esta-cuenta";
+    expect(modelosAProbar()[0]).toBe("un-modelo-que-solo-tiene-esta-cuenta");
   });
 });

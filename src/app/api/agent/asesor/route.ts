@@ -13,6 +13,8 @@ import {
   INFORMATIONAL_FOOTER,
   SinProveedorError,
   consultarAsesor,
+  elegirProveedor,
+  modelosAProbar,
   proveedorConfigurado,
   type ContextoDelExpediente,
 } from "@/lib/agent/asesor";
@@ -72,6 +74,66 @@ function perfilParaMotor(profile: Record<string, unknown>): Partial<ProjectProfi
     founders: typeof profile.number_of_founders === "number" ? profile.number_of_founders : 1,
     hasPremises: profile.physical_premises === true,
   };
+}
+
+/**
+ * Diagnóstico del asesor.
+ *
+ * Existe porque el orbe falló en producción y lo único que se veía era «No he
+ * podido procesar esta entrada». Un mensaje genérico convierte un fallo de
+ * configuración en un misterio. Esto contesta en una línea qué proveedor hay,
+ * qué modelo respondió y, si ninguno, con qué código falló cada uno.
+ *
+ * No devuelve ninguna clave ni parte de ella: sólo si está y qué contestó.
+ */
+export async function GET() {
+  const actor = await getCurrentActor();
+  if (!actor) return NextResponse.json({ error: "SESSION_REQUIRED" }, { status: 401 });
+
+  const elegido = elegirProveedor();
+  if (!elegido) {
+    return NextResponse.json({
+      proveedor: null,
+      diagnostico: "No hay ninguna clave de proveedor configurada en el servidor.",
+      claves: {
+        anthropic: Boolean(process.env.ANTHROPIC_API_KEY?.trim()),
+        openai: Boolean(process.env.OPENAI_API_KEY?.trim()),
+        openrouter: Boolean(process.env.OPENROUTER_API_KEY?.trim()),
+      },
+    });
+  }
+
+  try {
+    const prueba = await consultarAsesor({
+      texto: "Responde exactamente: listo.",
+      contexto: {
+        profile: {},
+        tareas: [],
+        obligaciones: [],
+        documentos: [],
+        denominaciones: [],
+        historial: [],
+        hoy: new Date().toISOString().slice(0, 10),
+      },
+      signal: AbortSignal.timeout(30_000),
+    });
+    return NextResponse.json({
+      proveedor: prueba.proveedor,
+      modelo: prueba.modelo,
+      buscaEnLaWeb: prueba.proveedor === "anthropic",
+      diagnostico: "El asesor responde.",
+      respuestaDePrueba: prueba.texto.slice(0, 200),
+    });
+  } catch (error) {
+    return NextResponse.json({
+      proveedor: elegido.proveedor,
+      modelosProbados: elegido.proveedor === "anthropic" ? modelosAProbar() : undefined,
+      diagnostico: "El asesor NO responde.",
+      // El mensaje lleva el código HTTP de cada modelo probado, que es lo que
+      // dice si el problema es la clave, la cuota o el nombre del modelo.
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 export async function POST(request: Request) {
