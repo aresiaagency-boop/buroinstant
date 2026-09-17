@@ -111,6 +111,7 @@ export async function GET() {
         tareas: [],
         obligaciones: [],
         documentos: [],
+        documentosPorTramite: {},
         denominaciones: [],
         historial: [],
         hoy: new Date().toISOString().slice(0, 10),
@@ -190,6 +191,11 @@ export async function POST(request: Request) {
     const documentos = Object.values(porTarea)
       .flat()
       .map((documento) => ({ category: documento.category, displayName: documento.displayName }));
+    // El mismo dato, pero sin perder a qué trámite está aportado cada papel:
+    // es lo único que autoriza a proponer cerrarlo.
+    const documentosPorTramite = Object.fromEntries(
+      Object.entries(porTarea).map(([code, docs]) => [code, docs.map((doc) => doc.displayName)]),
+    );
 
     const inicio = typeof profile.activity_start_date === "string" ? profile.activity_start_date : undefined;
     const aprobacion = typeof profile.accounts_approval_date === "string" ? profile.accounts_approval_date : undefined;
@@ -206,6 +212,7 @@ export async function POST(request: Request) {
         accountsApproval: aprobacion,
       }),
       documentos,
+      documentosPorTramite,
       denominaciones: await readDenominations(actor, proyecto.id),
       // Sin esto el asesor contesta y se olvida. Con esto puede sacar por su
       // cuenta lo que quedó empezado y sin cerrar, que es la mitad del trabajo

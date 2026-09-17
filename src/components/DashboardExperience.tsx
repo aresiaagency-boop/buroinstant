@@ -15,6 +15,27 @@ type ChatMessage = {
   text: string;
   fuentes?: Array<{ titulo: string; url: string }>;
 };
+/**
+ * Lo que el orbe propone HACER, no sólo decir.
+ *
+ * Llega validado del servidor —`limpiarAcciones` ya tiró lo que no es un
+ * trámite de este expediente y lo que pretendía cerrar un trámite sin papel—,
+ * así que aquí sólo queda pintarlo y pedir la confirmación. Que sea el
+ * servidor quien filtra es a propósito: una regla que sólo vive en la interfaz
+ * se salta con una pestaña de red abierta.
+ */
+type AccionDelOrbe =
+  | { tipo: "MOVER_TRAMITE"; code: string; titulo: string; a: string; porque: string }
+  | { tipo: "PEDIR_DOCUMENTO"; code: string; titulo: string; documento: string; porque: string };
+
+/** Cómo se lee cada estado en un botón. «WAITING_AUTHORITY» no se le enseña a nadie. */
+const ESTADO_EN_CLARO: Record<string, string> = {
+  IN_PROGRESS: "en marcha",
+  WAITING_AUTHORITY: "esperando a la administración",
+  BLOCKED: "atascado",
+  COMPLETED: "hecho",
+};
+
 type Profile = Record<string, unknown>;
 
 type SpeechRecognitionLike = {
@@ -379,6 +400,8 @@ export function DashboardExperience({
   } | null>(null);
   const [persistence, setPersistence] = useState<"LOCAL" | "SAVING" | "SAVED" | "FAILED">("LOCAL");
   const [section, setSection] = useState("orbe");
+  const [acciones, setAcciones] = useState<AccionDelOrbe[]>([]);
+  const [accionEnCurso, setAccionEnCurso] = useState<string | null>(null);
   const [answering, setAnswering] = useState<CaseField | null>(null);
   const [answerDraft, setAnswerDraft] = useState("");
   const [activity, setActivity] = useState<ActivityClassification | null>(null);
@@ -512,6 +535,10 @@ export function DashboardExperience({
    * BUROINSTANT sabía hacer antes y sigue sabiendo.
    */
   async function enviarPorReglas(text: string, aviso?: string) {
+    // El extractor de reglas no propone acciones. Dejar las del turno anterior
+    // en pantalla sería peor que no tener ninguna: se pulsa un botón que ya no
+    // responde a lo que se acaba de preguntar.
+    setAcciones([]);
     const response = await fetch("/api/agent/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -566,6 +593,7 @@ export function DashboardExperience({
         texto?: string;
         propuestas?: Array<{ field: string; value: unknown; porque: string }>;
         comprobar?: string[];
+        acciones?: AccionDelOrbe[];
         fuentes?: Array<{ titulo: string; url: string }>;
         buscoEnLaWeb?: boolean;
         message?: string;
@@ -591,6 +619,8 @@ export function DashboardExperience({
       }
 
       transition("validating", "Contrastando con tu expediente");
+
+      setAcciones(result.acciones ?? []);
 
       // Las propuestas entran en la misma bandeja de confirmación que ya
       // existía: el asesor propone, la persona confirma. Un dato con
@@ -949,6 +979,54 @@ export function DashboardExperience({
       setNotice("Sin conexión. El trámite sigue como estaba.");
     } finally {
       setConfirmingTask(null);
+    }
+  }
+
+  /**
+   * Hacer lo que el orbe propone, con un botón de por medio.
+   *
+   * Un botón y no una ejecución automática. El orbe lee el expediente entero y
+   * acierta casi siempre, pero «casi siempre» no basta cuando lo que se mueve
+   * es el estado de un trámite ante una administración. La persona ve qué se va
+   * a mover y por qué antes de que se mueva.
+   *
+   * Cerrar un trámite no pasa por aquí: va por la ruta de siempre, la que
+   * exige el documento. Dos puertas y una sola regla.
+   */
+  async function ejecutarAccion(accion: AccionDelOrbe) {
+    if (accion.tipo === "PEDIR_DOCUMENTO") {
+      // No se inventa a qué casilla va el papel: se lleva a la persona al
+      // itinerario con el nombre exacto de lo que falta y lo sube donde toca.
+      setSection("tramites");
+      await loadItinerary();
+      setNotice(`Falta «${accion.documento}» para ${accion.titulo}. Súbelo en ese trámite y podré darlo por hecho.`);
+      setAcciones((actuales) => actuales.filter((a) => a !== accion));
+      return;
+    }
+
+    setAccionEnCurso(accion.code);
+    try {
+      const esCierre = accion.a === "COMPLETED";
+      const response = await fetch(
+        esCierre ? "/api/expediente/tramites" : "/api/expediente/tramites/estado",
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(esCierre ? { taskCode: accion.code } : { taskCode: accion.code, status: accion.a }),
+        },
+      );
+      const payload = (await response.json()) as { message?: string };
+      if (!response.ok) {
+        setNotice(payload.message ?? "No he podido mover ese trámite.");
+        return;
+      }
+      setNotice(`${accion.titulo}: ${ESTADO_EN_CLARO[accion.a] ?? accion.a}.`);
+      setAcciones((actuales) => actuales.filter((a) => a !== accion));
+      await loadItinerary();
+    } catch {
+      setNotice("Sin conexión. El trámite sigue como estaba.");
+    } finally {
+      setAccionEnCurso(null);
     }
   }
 
@@ -1337,6 +1415,44 @@ export function DashboardExperience({
                 </div>
               ))}
             </div>
+
+            {acciones.length > 0 && (
+              <section className="accion-panel" aria-label="Lo que el Orbe propone mover">
+                <div className="accion-panel__title">
+                  <span>EL ORBE PROPONE MOVER</span>
+                  <small>{acciones.length === 1 ? "1 paso" : `${acciones.length} pasos`}</small>
+                </div>
+                <ul>
+                  {acciones.map((accion) => (
+                    <li key={`${accion.tipo}-${accion.code}`}>
+                      <div>
+                        <strong>
+                          {accion.tipo === "PEDIR_DOCUMENTO"
+                            ? `Falta «${accion.documento}»`
+                            : `${accion.titulo} → ${ESTADO_EN_CLARO[accion.a] ?? accion.a}`}
+                        </strong>
+                        <p>{accion.porque}</p>
+                      </div>
+                      <button
+                        type="button"
+                        className="gold-button gold-button--small"
+                        disabled={accionEnCurso === accion.code}
+                        onClick={() => void ejecutarAccion(accion)}
+                      >
+                        {accionEnCurso === accion.code
+                          ? "Moviendo…"
+                          : accion.tipo === "PEDIR_DOCUMENTO"
+                            ? "Llévame ahí"
+                            : "Hacerlo"}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <button type="button" className="text-button" onClick={() => setAcciones([])}>
+                  Ahora no
+                </button>
+              </section>
+            )}
 
             {pendingFields.length > 0 && (
               <section className="confirmation-panel" aria-label="Confirmar datos extraídos">

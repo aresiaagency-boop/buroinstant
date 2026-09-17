@@ -4,6 +4,7 @@ import {
   describirContexto,
   filtrarFuentes,
   leerRespuesta,
+  limpiarAcciones,
   limpiarPropuestas,
   modelosAProbar,
   urlsDelContexto,
@@ -28,6 +29,7 @@ const CONTEXTO: ContextoDelExpediente = {
   tareas: deriveTasks({ legalForm: "SLU", founders: 1, hasPremises: false }),
   obligaciones: upcomingObligations({ profile: { legalForm: "SLU" }, from: "2027-01-01", horizonDays: 200 }),
   documentos: [{ category: "IDENTITY", displayName: "DNI.pdf" }],
+  documentosPorTramite: { IDENTITY: ["DNI.pdf"] },
   denominaciones: [{ position: 1, name: "ARES AUTONOMOUS SYSTEMS SLU", status: "PROPOSED" }],
   historial: [{ cuando: "2027-01-10 09:12", que: "DOCUMENT_UPLOADED" }],
   hoy: "2027-01-15",
@@ -215,5 +217,157 @@ describe("qué modelos se prueban", () => {
   it("uno desconocido también se respeta: quien lo fija sabe lo que quiere", () => {
     process.env.ANTHROPIC_MODEL = "un-modelo-que-solo-tiene-esta-cuenta";
     expect(modelosAProbar()[0]).toBe("un-modelo-que-solo-tiene-esta-cuenta");
+  });
+});
+
+/**
+ * El salto de opinar a mover.
+ *
+ * Un asesor que sólo describe el expediente no es un gestor, es un folleto. Lo
+ * que lo convierte en gestor es poder mover un trámite. Y en el momento en que
+ * puede moverlo, lo que importa es exactamente qué NO puede mover.
+ */
+describe("lo que el asesor puede mover del expediente", () => {
+  const TAREAS = deriveTasks({ legalForm: "SLU", founders: 1, hasPremises: false });
+  const CODIGO = TAREAS[0].code;
+  const OTRO = TAREAS[1].code;
+
+  it("mueve un trámite a un estado intermedio", () => {
+    const acciones = limpiarAcciones(
+      [{ tipo: "MOVER_TRAMITE", code: CODIGO, a: "IN_PROGRESS", porque: "Has pedido la cita" }],
+      TAREAS,
+      {},
+    );
+    expect(acciones).toHaveLength(1);
+    expect(acciones[0]).toMatchObject({ tipo: "MOVER_TRAMITE", code: CODIGO, a: "IN_PROGRESS" });
+  });
+
+  it("el botón lleva el título, no sólo el código", () => {
+    const acciones = limpiarAcciones(
+      [{ tipo: "MOVER_TRAMITE", code: CODIGO, a: "BLOCKED", porque: "Falta el certificado" }],
+      TAREAS,
+      {},
+    );
+    expect(acciones[0].titulo).toBe(TAREAS[0].title);
+  });
+
+  /** La prohibición §99, y la razón de que esto se pruebe aquí y no en la interfaz. */
+  it("NO puede dar por hecho un trámite sin papel aportado", () => {
+    const acciones = limpiarAcciones(
+      [{ tipo: "MOVER_TRAMITE", code: CODIGO, a: "COMPLETED", porque: "Me dices que ya está" }],
+      TAREAS,
+      {},
+    );
+    expect(acciones).toEqual([]);
+  });
+
+  it("sí puede darlo por hecho cuando el papel está en ese trámite", () => {
+    const acciones = limpiarAcciones(
+      [{ tipo: "MOVER_TRAMITE", code: CODIGO, a: "COMPLETED", porque: "Has subido la escritura" }],
+      TAREAS,
+      { [CODIGO]: ["escritura.pdf"] },
+    );
+    expect(acciones).toHaveLength(1);
+  });
+
+  it("el papel del trámite de al lado no vale", () => {
+    const acciones = limpiarAcciones(
+      [{ tipo: "MOVER_TRAMITE", code: CODIGO, a: "COMPLETED", porque: "Hay documentos en el archivo" }],
+      TAREAS,
+      { [OTRO]: ["otra-cosa.pdf"] },
+    );
+    expect(acciones).toEqual([]);
+  });
+
+  it("un trámite que no es de este expediente no existe", () => {
+    expect(
+      limpiarAcciones([{ tipo: "MOVER_TRAMITE", code: "TRAMITE_INVENTADO", a: "IN_PROGRESS", porque: "x" }], TAREAS, {}),
+    ).toEqual([]);
+  });
+
+  it("un estado que no está en la lista no pasa", () => {
+    expect(
+      limpiarAcciones([{ tipo: "MOVER_TRAMITE", code: CODIGO, a: "PRESENTADO_Y_PAGADO", porque: "x" }], TAREAS, {}),
+    ).toEqual([]);
+  });
+
+  it("decidir que un trámite no aplica no se delega en el modelo", () => {
+    expect(
+      limpiarAcciones([{ tipo: "MOVER_TRAMITE", code: CODIGO, a: "NOT_APPLICABLE", porque: "x" }], TAREAS, {}),
+    ).toEqual([]);
+  });
+
+  it("proponer el estado que ya tiene es ruido y se cae", () => {
+    const actual = TAREAS[0].status;
+    expect(limpiarAcciones([{ tipo: "MOVER_TRAMITE", code: CODIGO, a: actual, porque: "x" }], TAREAS, {})).toEqual([]);
+  });
+
+  it("una acción sin motivo no se pulsa a ciegas", () => {
+    expect(
+      limpiarAcciones([{ tipo: "MOVER_TRAMITE", code: CODIGO, a: "IN_PROGRESS", porque: "  " }], TAREAS, {}),
+    ).toEqual([]);
+  });
+
+  it("pide el papel que falta, por su nombre", () => {
+    const acciones = limpiarAcciones(
+      [{ tipo: "PEDIR_DOCUMENTO", code: CODIGO, documento: "Certificación negativa del RMC", porque: "Sin ella no hay notaría" }],
+      TAREAS,
+      {},
+    );
+    expect(acciones).toHaveLength(1);
+    expect(acciones[0]).toMatchObject({ tipo: "PEDIR_DOCUMENTO", documento: "Certificación negativa del RMC" });
+  });
+
+  it("pedir un documento sin decir cuál no pide nada", () => {
+    expect(
+      limpiarAcciones([{ tipo: "PEDIR_DOCUMENTO", code: CODIGO, documento: "", porque: "x" }], TAREAS, {}),
+    ).toEqual([]);
+  });
+
+  it("no existe ninguna acción de firmar, pagar ni presentar", () => {
+    expect(
+      limpiarAcciones(
+        [
+          { tipo: "FIRMAR", code: CODIGO, porque: "x" },
+          { tipo: "PAGAR_TASA", code: CODIGO, porque: "x" },
+          { tipo: "PRESENTAR", code: CODIGO, porque: "x" },
+        ],
+        TAREAS,
+        {},
+      ),
+    ).toEqual([]);
+  });
+
+  it("no acepta una pantalla entera de botones", () => {
+    const muchas = TAREAS.slice(0, 10).map((t) => ({
+      tipo: "MOVER_TRAMITE",
+      code: t.code,
+      a: t.status === "IN_PROGRESS" ? "BLOCKED" : "IN_PROGRESS",
+      porque: "x",
+    }));
+    expect(limpiarAcciones(muchas, TAREAS, {}).length).toBeLessThanOrEqual(4);
+  });
+
+  it("lo que no sea una lista no rompe nada", () => {
+    expect(limpiarAcciones(null, TAREAS, {})).toEqual([]);
+    expect(limpiarAcciones("acciones", TAREAS, {})).toEqual([]);
+    expect(limpiarAcciones([null, 7, "x"], TAREAS, {})).toEqual([]);
+  });
+});
+
+describe("lo que el asesor ve del papeleo", () => {
+  it("ve qué papel está aportado a qué trámite, no una lista suelta", () => {
+    const tareas = deriveTasks({ legalForm: "SLU", founders: 1, hasPremises: false });
+    const texto = describirContexto({
+      ...CONTEXTO,
+      tareas,
+      documentosPorTramite: { [tareas[0].code]: ["escritura.pdf"] },
+    });
+    expect(texto).toContain("PAPEL APORTADO: escritura.pdf");
+    expect(texto).toContain("sin papel aportado");
+  });
+
+  it("sabe que sin papel toca pedirlo, no darlo por hecho", () => {
+    expect(describirContexto(CONTEXTO)).toContain("PEDIR_DOCUMENTO");
   });
 });

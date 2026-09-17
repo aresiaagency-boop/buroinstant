@@ -61,6 +61,37 @@ export type PropuestaDelAsesor = {
   porque: string;
 };
 
+/**
+ * Lo que el asesor puede mover, no sólo comentar.
+ *
+ * Hasta aquí el orbe describía el expediente y proponía rellenar casillas. Un
+ * gestor de verdad no hace eso: mueve el expediente. Estas son las dos únicas
+ * cosas que puede pedir hacer, y las dos las confirma la persona con un botón.
+ *
+ * Deliberadamente NO existe una acción para subir un documento, firmar, pagar
+ * ni presentar nada. Eso no se delega en un modelo.
+ */
+export type AccionDelAsesor =
+  | {
+      tipo: "MOVER_TRAMITE";
+      code: string;
+      /** El título del trámite, para que el botón se lea sin descifrar el código. */
+      titulo: string;
+      a: EstadoProponible;
+      porque: string;
+    }
+  | { tipo: "PEDIR_DOCUMENTO"; code: string; titulo: string; documento: string; porque: string };
+
+/**
+ * Los estados que el asesor puede proponer.
+ *
+ * `NOT_APPLICABLE` no está: decidir que un trámite no le aplica a una empresa
+ * es una decisión con consecuencia, y la toma la persona en el panel, no una
+ * frase en un chat.
+ */
+export const ESTADOS_PROPONIBLES = ["IN_PROGRESS", "WAITING_AUTHORITY", "BLOCKED", "COMPLETED"] as const;
+export type EstadoProponible = (typeof ESTADOS_PROPONIBLES)[number];
+
 export type FuenteDelAsesor = {
   titulo: string;
   url: string;
@@ -71,6 +102,8 @@ export type RespuestaDelAsesor = {
   propuestas: PropuestaDelAsesor[];
   /** Qué debería mirar la persona en la sede oficial antes de actuar. */
   comprobar: string[];
+  /** Lo que propone hacer con el expediente, para confirmar con un botón. */
+  acciones: AccionDelAsesor[];
   /** Enlaces para ir directo, nunca inventados: ver `filtrarFuentes`. */
   fuentes: FuenteDelAsesor[];
   modelo: string | null;
@@ -146,11 +179,77 @@ export function filtrarFuentes(crudas: unknown, urlsDelContexto: Set<string>): F
   return validas.slice(0, 8);
 }
 
+/**
+ * Lo que se deja pasar de lo que el asesor quiera mover.
+ *
+ * Mismo criterio que con las propuestas de datos, subido de nivel porque esto
+ * ya no rellena una casilla: cambia el estado de un trámite.
+ *
+ *   · Un código que no es un trámite de ESTE expediente no existe.
+ *   · Un estado fuera de la lista no existe.
+ *   · COMPLETED sin un documento aportado A ESE trámite se cae entera. No se
+ *     degrada a otro estado ni se convierte en una sugerencia: se cae. Es la
+ *     prohibición §99 —no marcar un trámite como realizado sin evidencia— y no
+ *     se delega en que el panel lo compruebe después.
+ *   · Proponer el estado que ya tiene es ruido: un botón que no hace nada
+ *     enseña a no pulsar los botones.
+ */
+export function limpiarAcciones(
+  crudas: unknown,
+  tareas: DerivedTask[],
+  documentosPorTramite: Record<string, string[]>,
+): AccionDelAsesor[] {
+  if (!Array.isArray(crudas)) return [];
+
+  const porCodigo = new Map(tareas.map((tarea) => [tarea.code, tarea]));
+  const limpias: AccionDelAsesor[] = [];
+
+  for (const cruda of crudas) {
+    if (!cruda || typeof cruda !== "object") continue;
+    const item = cruda as Record<string, unknown>;
+    const code = String(item.code ?? "").trim().toUpperCase();
+    const tarea = porCodigo.get(code);
+    if (!tarea) continue;
+
+    const porque = String(item.porque ?? "").trim().slice(0, 240);
+    if (porque.length === 0) continue;
+
+    if (item.tipo === "PEDIR_DOCUMENTO") {
+      const documento = String(item.documento ?? "").trim().slice(0, 120);
+      if (documento.length === 0) continue;
+      limpias.push({ tipo: "PEDIR_DOCUMENTO", code, titulo: tarea.title, documento, porque });
+      continue;
+    }
+
+    if (item.tipo !== "MOVER_TRAMITE") continue;
+
+    const a = String(item.a ?? "").trim().toUpperCase();
+    if (!(ESTADOS_PROPONIBLES as readonly string[]).includes(a)) continue;
+    if (a === tarea.status) continue;
+    if (a === "COMPLETED" && (documentosPorTramite[code] ?? []).length === 0) continue;
+
+    limpias.push({ tipo: "MOVER_TRAMITE", code, titulo: tarea.title, a: a as EstadoProponible, porque });
+  }
+
+  // Cuatro es el límite por la misma razón que seis en las propuestas: una
+  // pantalla de botones no se revisa, se pulsa a ciegas.
+  return limpias.slice(0, 4);
+}
+
 export type ContextoDelExpediente = {
   profile: Partial<Record<ProfileKey, unknown>>;
   tareas: DerivedTask[];
   obligaciones: ObligationOccurrence[];
   documentos: Array<{ category: string; displayName: string }>;
+  /**
+   * Qué papel está aportado a qué trámite.
+   *
+   * La lista plana de documentos no servía para lo único que importa al
+   * cerrarlos: un trámite se da por hecho cuando TIENE su papel, no cuando hay
+   * papeles en el archivo. Sin esta relación el asesor proponía cerrar cosas
+   * apoyándose en el documento de al lado.
+   */
+  documentosPorTramite: Record<string, string[]>;
   denominaciones: Array<{ position: number; name: string; status: string }>;
   /** Lo último que pasó en el expediente, para poder dar seguimiento de verdad. */
   historial: Array<{ cuando: string; que: string }>;
@@ -215,7 +314,11 @@ export function describirContexto(contexto: ContextoDelExpediente): string {
   lineas.push("\nITINERARIO (estado real de cada trámite):");
   for (const tarea of contexto.tareas) {
     const fuente = tarea.sourceUrl ? ` · fuente: ${tarea.sourceUrl}` : " · SIN FUENTE OFICIAL";
-    lineas.push(`· [${tarea.status}] ${tarea.code} — ${tarea.title} (${tarea.authority})${fuente}`);
+    // El papel aportado va pegado a su trámite. Suelto en otra lista invitaba a
+    // cerrar un trámite apoyándose en el documento del de al lado.
+    const papeles = contexto.documentosPorTramite[tarea.code] ?? [];
+    const prueba = papeles.length > 0 ? ` · PAPEL APORTADO: ${papeles.join(", ")}` : " · sin papel aportado";
+    lineas.push(`· [${tarea.status}] ${tarea.code} — ${tarea.title} (${tarea.authority})${prueba}${fuente}`);
   }
 
   if (contexto.documentos.length > 0) {
@@ -250,6 +353,17 @@ export function describirContexto(contexto: ContextoDelExpediente): string {
       ". Las fechas van en formato AAAA-MM-DD. `preferred_legal_form` admite SL, SLU o AUTONOMO.",
   );
 
+  lineas.push(
+    "\nLO QUE PUEDES MOVER EN EL EXPEDIENTE (acciones, cada una la confirma la persona con un botón):" +
+      "\n· MOVER_TRAMITE: cambiar el estado de un trámite del itinerario. Estados: " +
+      ESTADOS_PROPONIBLES.join(", ") +
+      ".\n· PEDIR_DOCUMENTO: pedir el papel concreto que falta para poder cerrar un trámite." +
+      "\n\nCOMPLETED sólo lo puedes proponer para un trámite que ya tenga PAPEL APORTADO en el itinerario de arriba. " +
+      "Si no lo tiene, lo que toca es PEDIR_DOCUMENTO, no darlo por hecho. " +
+      "No propongas un estado que el trámite ya tiene. " +
+      "No existe ninguna acción para firmar, pagar, presentar ni subir un documento: eso lo hace la persona.",
+  );
+
   return lineas.join("\n");
 }
 
@@ -271,10 +385,13 @@ const FORMATO = `Responde SIEMPRE con un único objeto JSON, sin texto alrededor
   "texto": "tu respuesta a la persona, en español, directa",
   "propuestas": [{ "field": "<uno de los campos permitidos>", "value": <valor>, "porque": "<una línea>" }],
   "comprobar": ["<lo que debe verificar en sede oficial antes de actuar, si procede>"],
+  "acciones": [{ "tipo": "MOVER_TRAMITE", "code": "<código del itinerario>", "a": "<estado>", "porque": "<una línea>" }],
   "fuentes": [{ "titulo": "<de qué es este enlace>", "url": "https://..." }]
 }
 
 "propuestas" va vacío salvo que la persona haya dicho un dato nuevo o haya corregido uno. Nunca propongas un valor que la persona no haya dicho: no adivines su municipio ni su forma jurídica.
+
+"acciones" es cómo mueves el expediente de verdad, y es lo que te separa de un chat que sólo opina. Ponla cuando de la conversación se deduzca que un trámite ha cambiado de estado o que falta un papel concreto. La forma de PEDIR_DOCUMENTO es { "tipo": "PEDIR_DOCUMENTO", "code": "...", "documento": "<el papel, por su nombre>", "porque": "<una línea>" }. Va vacío si no hay nada que mover: proponer por proponer enseña a no mirar los botones.
 
 "fuentes" son los enlaces para ir directo a hacer la gestión o a leer la norma. Ponlos siempre que los tengas: es la mitad del trabajo que vienes a quitar. Sólo URLs del contexto o encontradas buscando; jamás una URL construida por ti.`;
 
@@ -337,6 +454,7 @@ export function leerRespuesta(bruto: string): {
   texto: string;
   propuestas: unknown;
   comprobar: unknown;
+  acciones: unknown;
   fuentes: unknown;
 } {
   const limpio = bruto.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
@@ -346,12 +464,13 @@ export function leerRespuesta(bruto: string): {
       texto: String(objeto.texto ?? "").trim(),
       propuestas: objeto.propuestas,
       comprobar: objeto.comprobar,
+      acciones: objeto.acciones,
       fuentes: objeto.fuentes,
     };
   } catch {
     // Si no vino JSON, el texto sigue sirviendo: se devuelve tal cual y sin
     // propuestas ni fuentes, que es el lado seguro del error.
-    return { texto: limpio, propuestas: [], comprobar: [], fuentes: [] };
+    return { texto: limpio, propuestas: [], comprobar: [], acciones: [], fuentes: [] };
   }
 }
 
@@ -419,6 +538,7 @@ export async function consultarAsesor(input: {
     comprobar: Array.isArray(leida.comprobar)
       ? leida.comprobar.map((c) => String(c)).filter((c) => c.length > 0).slice(0, 5)
       : [],
+    acciones: limpiarAcciones(leida.acciones, input.contexto.tareas, input.contexto.documentosPorTramite),
     fuentes: filtrarFuentes(leida.fuentes, permitidas),
     modelo,
     proveedor: elegido.proveedor,

@@ -3299,3 +3299,71 @@ a.gold-button {
 .message__fuentes a:hover {
   text-decoration: underline;
 }
+
+/*
+ * Lo que el Orbe propone mover.
+ *
+ * Deliberadamente distinto de la bandeja de confirmación de datos: aquella
+ * rellena casillas y ésta cambia el estado de un trámite ante una
+ * administración. Si las dos se vieran igual, se pulsarían igual.
+ */
+.accion-panel {
+  margin: 0.8rem 0;
+  padding: 0.9rem;
+  border: 1px solid rgba(231, 190, 97, 0.34);
+  border-left-width: 3px;
+  background: rgba(120, 83, 24, 0.09);
+}
+
+.accion-panel__title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.accion-panel__title span {
+  color: var(--gold-antique);
+  font-family: var(--font-mono);
+  font-size: 0.5rem;
+  letter-spacing: 0.1em;
+}
+
+.accion-panel__title small {
+  color: #777975;
+  font-size: 0.55rem;
+}
+
+.accion-panel ul {
+  margin: 0.65rem 0 0.55rem;
+  padding: 0;
+  list-style: none;
+}
+
+.accion-panel li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.9rem;
+  padding: 0.55rem 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.accion-panel li strong {
+  display: block;
+  color: #e9e6df;
+  font-size: 0.82rem;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+/* El motivo va debajo y más apagado: se lee al dudar, no antes. */
+.accion-panel li p {
+  margin: 0.2rem 0 0;
+  color: #8d908a;
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.accion-panel li button {
+  flex: 0 0 auto;
+}
